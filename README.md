@@ -56,11 +56,44 @@ Perfect for roommates, trips, restaurants, and shared living.
 
 ## Built With
 
-- OCR (Optical Character Recognition)  
-- Computer Vision  
-- React / React Native  
-- Backend API for bill processing  
-- Database for user expense tracking  
+- OCR (Optical Character Recognition) – Google Cloud Vision API
+- Computer Vision
+- Python / FastAPI (receipt API)
+- React / React Native
+- Backend API for bill processing
+- Database for user expense tracking
+
+---
+
+## Receipt API (Python / FastAPI)
+
+### Setup
+
+```bash
+# Create venv and install deps
+python -m venv venv
+source venv/bin/activate   # or `venv\Scripts\activate` on Windows
+pip install -r requirements.txt
+
+# Auth for Google Cloud Vision (choose one):
+# 1. Service account: set GOOGLE_APPLICATION_CREDENTIALS to your JSON key path
+# 2. Local dev: gcloud auth application-default login
+```
+
+### Run
+
+```bash
+uvicorn backend.main:app --reload
+```
+
+API docs: http://127.0.0.1:8000/docs
+
+### Endpoints
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| POST | `/api/receipts/process` | Upload receipt image → returns items + costs |
+| POST | `/api/receipts/parse` | Parse raw OCR text (body: `{"raw_text": "..."}`) |  
 
 ---
 
