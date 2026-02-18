@@ -1,36 +1,71 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 🧾 Divvy – Automatic Bill Splitting App
 
-## Getting Started
+Divvy is a smart bill-splitting app that makes group payments effortless. Just take a photo of your receipt, let the app automatically process it, and select the items you want to pay for. Divvy handles tax, tip, and totals for everyone. No more awkward Venmo math.
 
-First, run the development server:
+---
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+## Features
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### Receipt Scanning
+Upload or take a photo of a receipt. Divvy uses OCR and image processing to:
+- Detect items  
+- Extract prices  
+- Identify tax and tip  
+- Calculate the total automatically  
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### Smart Item-Based Splitting
+Users select the items they ordered, and Divvy:
+- Splits shared items evenly  
+- Assigns individual items correctly  
+- Distributes tax and tip proportionally  
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Fair Payment Calculation
+No more guessing. Divvy ensures:
+- Everyone pays exactly their share  
+- Tax and tip are split fairly  
+- The total always matches the receipt  
 
-## Learn More
+### Expense Tracking
+Divvy keeps track of:
+- How much each user has spent  
+- Who owes whom  
+- Historical spending trends over time  
 
-To learn more about Next.js, take a look at the following resources:
+Perfect for roommates, trips, restaurants, and shared living.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## How It Works
 
-## Deploy on Vercel
+1. Take a photo of a receipt  
+2. OCR extracts all items and prices  
+3. Users select what they ordered  
+4. Divvy calculates individual totals  
+5. Payments can be settled instantly  
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+--
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Future Improvements
+
+- Venmo / PayPal / Apple Pay integration  
+- Group accounts for roommates and trips  
+- AI receipt correction & learning  
+- Budgeting and monthly summaries  
+
+---
+
+## Built With
+
+- OCR (Optical Character Recognition)  
+- Computer Vision  
+- React / React Native  
+- Backend API for bill processing  
+- Database for user expense tracking  
+
+---
+
+## 📬 Contact
+
+Built by **beaam**
+
+>>>>>>> 1de35a11b3a3e7b59ea4b67deeb40b9b65ebc01f
