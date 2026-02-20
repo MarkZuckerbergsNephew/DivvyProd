@@ -1,5 +1,5 @@
-import { calculateSettlement } from "../../../lib/calculateSettlement";
-import { createVenmoLink } from "../../../lib/paymentLinks";
+import { calculateSettlement } from "@/lib/calculateSettlement";
+import { createVenmoLink } from "@/lib/paymentLinks";
 
 export default async function SummaryPage({
   params,
