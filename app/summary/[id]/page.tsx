@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { calculateSettlement } from "@/lib/calculateSettlement";
 import { createVenmoLink } from "@/lib/paymentLinks";
 
