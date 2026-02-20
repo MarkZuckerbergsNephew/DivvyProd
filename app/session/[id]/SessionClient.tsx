@@ -2,8 +2,8 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
-import SessionShell from "@/app/components/session/SessionShell";
+import { supabase } from "../../../lib/supabase";
+import SessionShell from "../../components/session/SessionShell";
 
 /* ================= TYPES ================= */
 
