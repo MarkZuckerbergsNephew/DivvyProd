@@ -1,9 +1,22 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
+import confetti from "canvas-confetti";
 import { useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
-import SessionShell from "@/components/session/SessionShell";
+import { calculateTotals } from "@/lib/billMath";
+import { generatePaymentLink } from "@/lib/paymentLink";
+import { useSessionRealtime } from "@/hooks/useSessionRealtime";
+import {
+  SessionShell,
+  BillSummaryCard,
+  TaxTipInputs,
+  SplitProgress,
+  ParticipantList,
+  ItemList,
+  SettlementPanel,
+} from "@/components/session";
+import JoinCodeCard from "@/components/JoinCodeCard";
 
 /* ================= TYPES ================= */
 
@@ -17,11 +30,13 @@ type Claim = {
   id: string;
   item_id: string;
   participant_id: string;
+  amount?: number;
 };
 
 type Participant = {
   id: string;
   name: string;
+  venmo_username?: string | null;
 };
 
 type SettlementRow = {
@@ -62,6 +77,11 @@ function getAvatarColor(id: string) {
   return colors[Math.abs(hash) % colors.length];
 }
 
+function clampMoney(value: number) {
+  if (isNaN(value) || value < 0) return 0;
+  return value;
+}
+
 /* ================= COMPONENT ================= */
 
 export default function SessionClient({
@@ -80,8 +100,19 @@ export default function SessionClient({
 
   const [hostParticipantId, setHostParticipantId] =
     useState<string | null>(null);
+  const [status, setStatus] = useState<string>("active");
+  const [splitType, setSplitType] =
+    useState<"restaurant" | "general" | null>(null);
+  // restaurant adjustments (USER INPUT STRINGS)
+  const [taxInput, setTaxInput] = useState("");
+  const [tipInput, setTipInput] = useState("");
 
   const [sessionTitle, setSessionTitle] = useState("Divvy Split");
+  const [joinCode, setJoinCode] = useState<string | null>(null);
+
+  // derived numeric values for math (from input strings)
+  const taxAmount = Math.max(0, Number(taxInput) || 0);
+  const tipAmount = Math.max(0, Number(tipInput) || 0);
 
   const [name, setName] = useState("");
   const [price, setPrice] = useState("");
@@ -95,6 +126,7 @@ export default function SessionClient({
 
   const [activities, setActivities] = useState<Activity[]>([]);
   const prevClaimsRef = useRef<Claim[]>([]);
+  const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const itemInputRef = useRef<HTMLInputElement>(null);
   const priceInputRef = useRef<HTMLInputElement>(null);
@@ -104,6 +136,14 @@ export default function SessionClient({
 
   const [lastClaimedItem, setLastClaimedItem] =
     useState<string | null>(null);
+  const [editingClaim, setEditingClaim] = useState<Claim | null>(null);
+  const [amountInput, setAmountInput] = useState("");
+  const [claimingItemIds, setClaimingItemIds] = useState<Set<string>>(
+    new Set()
+  );
+
+  const [finishing, setFinishing] = useState(false);
+  const [showCompletion, setShowCompletion] = useState(false);
 
   /* ================= INVITE ================= */
 
@@ -130,8 +170,19 @@ export default function SessionClient({
   /* ================= PARTICIPANT ================= */
 
   useEffect(() => {
-    setParticipantId(searchParams.get("participant"));
-  }, [searchParams]);
+    const fromUrl = searchParams.get("participant");
+    const saved =
+      typeof window !== "undefined"
+        ? localStorage.getItem(`divvy_session_${sessionId}`)
+        : null;
+    setParticipantId(fromUrl || saved);
+  }, [searchParams, sessionId]);
+
+  useEffect(() => {
+    if (participantId && typeof window !== "undefined") {
+      localStorage.setItem(`divvy_session_${sessionId}`, participantId);
+    }
+  }, [participantId, sessionId]);
 
   useEffect(() => {
     if (!participantId) return;
@@ -151,7 +202,9 @@ export default function SessionClient({
   async function fetchSession() {
     const { data } = await supabase
       .from("sessions")
-      .select("title, host_participant_id")
+      .select(
+        "title, host_participant_id, split_type, status, tax_amount, tip_amount, join_code"
+      )
       .eq("id", sessionId)
       .single();
 
@@ -159,6 +212,13 @@ export default function SessionClient({
 
     setHostParticipantId(data.host_participant_id);
     if (data.title) setSessionTitle(data.title);
+    setStatus((data as { status?: string }).status ?? "active");
+    setSplitType((data as { split_type?: "restaurant" | "general" }).split_type ?? null);
+    setJoinCode((data as { join_code?: string | null }).join_code ?? null);
+    const tax = (data as { tax_amount?: number }).tax_amount;
+    const tip = (data as { tip_amount?: number }).tip_amount;
+    setTaxInput(tax != null && tax !== 0 ? String(tax) : "");
+    setTipInput(tip != null && tip !== 0 ? String(tip) : "");
   }
 
   async function fetchItems() {
@@ -173,7 +233,7 @@ export default function SessionClient({
   async function fetchParticipants() {
     const { data } = await supabase
       .from("participants")
-      .select("id,name")
+      .select("id, name, venmo_username")
       .eq("session_id", sessionId);
 
     setParticipants(data ?? []);
@@ -186,6 +246,7 @@ export default function SessionClient({
         id,
         item_id,
         participant_id,
+        amount,
         items!inner(session_id)
       `)
       .eq("items.session_id", sessionId);
@@ -198,11 +259,35 @@ export default function SessionClient({
     fetchItems();
     fetchClaims();
     fetchParticipants();
+
+    (async () => {
+      const { data: paymentData } = await supabase
+        .from("payments")
+        .select("participant_id")
+        .eq("session_id", sessionId);
+      if (paymentData) {
+        setPaidIds(paymentData.map((p: { participant_id: string }) => p.participant_id));
+      }
+    })();
   }, [sessionId]);
 
   useEffect(() => {
     setTitleInput(sessionTitle);
   }, [sessionTitle]);
+
+  useEffect(() => {
+    if (status === "completed") {
+      setShowCompletion(true);
+    }
+  }, [status]);
+
+  const confettiFiredRef = useRef(false);
+  useEffect(() => {
+    if (showCompletion && !confettiFiredRef.current) {
+      confettiFiredRef.current = true;
+      confetti({ particleCount: 120, spread: 70 });
+    }
+  }, [showCompletion]);
 
   useEffect(() => {
     if (items.length === 0) {
@@ -212,30 +297,35 @@ export default function SessionClient({
 
   /* ================= REALTIME ================= */
 
-  useEffect(() => {
-    const channel = supabase
-      .channel(`session-${sessionId}`)
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "items", filter: `session_id=eq.${sessionId}` },
-        fetchItems
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "claims" },
-        fetchClaims
-      )
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "participants", filter: `session_id=eq.${sessionId}` },
-        fetchParticipants
-      )
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [sessionId]);
+  useSessionRealtime(sessionId, {
+    onItems: fetchItems,
+    onClaims: fetchClaims,
+    onParticipants: fetchParticipants,
+    onPayments: async () => {
+      const { data } = await supabase
+        .from("payments")
+        .select("participant_id")
+        .eq("session_id", sessionId);
+      if (data) {
+        setPaidIds(data.map((p: { participant_id: string }) => p.participant_id));
+      }
+    },
+    onSessionUpdate: payload => {
+      const updated = payload.new;
+      if (updated.status) {
+        setStatus(updated.status);
+        if (updated.status === "completed") {
+          setShowCompletion(true);
+        }
+      }
+      if (updated.tax_amount !== undefined) {
+        setTaxInput(updated.tax_amount ? String(updated.tax_amount) : "");
+      }
+      if (updated.tip_amount !== undefined) {
+        setTipInput(updated.tip_amount ? String(updated.tip_amount) : "");
+      }
+    },
+  });
 
   /* ================= PRESENCE ================= */
 
@@ -264,28 +354,6 @@ export default function SessionClient({
       void supabase.removeChannel(channel);
     };
   }, [participantId, participantName, sessionId]);
-
-  /* ================= PAYMENT REALTIME ================= */
-
-  useEffect(() => {
-    const channel = supabase.channel(`payments-${sessionId}`);
-
-    channel.on("broadcast", { event: "paid" }, payload => {
-      const paidParticipantId = payload.payload.participantId;
-
-      setPaidIds(prev =>
-        prev.includes(paidParticipantId)
-          ? prev
-          : [...prev, paidParticipantId]
-      );
-    });
-
-    channel.subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [sessionId]);
 
   /* ================= ACTIVITY ================= */
 
@@ -319,43 +387,130 @@ export default function SessionClient({
 
   /* ================= CLAIM ================= */
 
-  async function toggleClaim(itemId: string) {
-    if (!participantId) return;
-
-    const existing = claims.find(
-      c =>
-        c.item_id === itemId &&
-        c.participant_id === participantId
+  function normalizeWeights(claimers: Claim[]) {
+    const total = claimers.reduce(
+      (sum, c) => sum + (c.amount ?? 0),
+      0
     );
 
-    if (existing) {
-      await supabase.from("claims").delete().eq("id", existing.id);
-    } else {
-      await supabase.from("claims").insert({
-        item_id: itemId,
-        participant_id: participantId,
+    if (total === 0) return claimers;
+
+    return claimers.map(c => ({
+      ...c,
+      amount: ((c.amount ?? 0) / total) * 100,
+    }));
+  }
+
+  async function normalizeItemWeights(itemId: string) {
+    const { data: claimers } = await supabase
+      .from("claims")
+      .select("id")
+      .eq("item_id", itemId);
+
+    if (!claimers || claimers.length === 0) return;
+
+    const even = 100 / claimers.length;
+
+    await Promise.all(
+      claimers.map(c =>
+        supabase
+          .from("claims")
+          .update({ amount: even })
+          .eq("id", c.id)
+      )
+    );
+  }
+
+  async function toggleClaim(itemId: string) {
+    if (!participantId || status === "completed") return;
+
+    if (claimingItemIds.has(itemId)) return;
+
+    setClaimingItemIds(prev => new Set(prev).add(itemId));
+
+    try {
+      const existing = claims.find(
+        c =>
+          c.item_id === itemId &&
+          c.participant_id === participantId
+      );
+
+      if (existing) {
+        setClaims(prev => prev.filter(c => c.id !== existing.id));
+
+        const { error } = await supabase
+          .from("claims")
+          .delete()
+          .eq("id", existing.id);
+
+        if (error) {
+          console.error(error);
+          setClaims(prev => [...prev, existing]);
+          alert("Something went wrong. Please try again.");
+        }
+      } else {
+        const tempId = crypto.randomUUID();
+
+        setClaims(prev => [
+          ...prev,
+          {
+            id: tempId,
+            item_id: itemId,
+            participant_id: participantId,
+            amount: 0,
+          },
+        ]);
+
+        const { data, error } = await supabase
+          .from("claims")
+          .insert({
+            item_id: itemId,
+            participant_id: participantId,
+            amount: 0,
+          })
+          .select()
+          .single();
+
+        if (error) {
+          console.error(error);
+          setClaims(prev => prev.filter(c => c.id !== tempId));
+          alert("Something went wrong. Please try again.");
+        }
+
+        if (data) {
+          setClaims(prev =>
+            prev.map(c => (c.id === tempId ? data : c))
+          );
+        }
+      }
+    } finally {
+      setClaimingItemIds(prev => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
       });
-
-      setLastClaimedItem(itemId);
-
-      setTimeout(() => {
-        setLastClaimedItem(null);
-      }, 900);
     }
   }
 
   /* ================= ADD ITEM ================= */
 
   async function addItem() {
+    if (status === "completed") return;
     const numericPrice = Number(price);
     if (!name.trim() || isNaN(numericPrice)) return;
 
-    await supabase.from("items").insert({
+    const { error } = await supabase.from("items").insert({
       session_id: sessionId,
       name: name.trim(),
       price: numericPrice,
     });
 
+    if (error) {
+      console.error(error);
+      alert("Something went wrong. Please try again.");
+      return;
+    }
+    fetchItems();
     setName("");
     setPrice("");
     itemInputRef.current?.focus();
@@ -364,41 +519,157 @@ export default function SessionClient({
   async function updateSessionTitle() {
     if (!titleInput.trim()) return;
 
-    await supabase
+    const { error } = await supabase
       .from("sessions")
       .update({ title: titleInput.trim() })
       .eq("id", sessionId);
 
+    if (error) {
+      console.error(error);
+      alert("Something went wrong. Please try again.");
+      return;
+    }
     setSessionTitle(titleInput.trim());
     setEditingTitle(false);
   }
 
-  /* ================= MARK PAID ================= */
+  async function setSplitPreset(
+    itemId: string,
+    type: "even" | "more" | "less"
+  ) {
+    if (!participantId) return;
 
-  async function markPaid(participantId: string) {
-    // update local immediately (optimistic UI)
-    setPaidIds(prev =>
-      prev.includes(participantId)
-        ? prev
-        : [...prev, participantId]
+    const claimers = claims.filter(c => c.item_id === itemId);
+    if (claimers.length !== 2) return;
+
+    const me = claimers.find(
+      c => c.participant_id === participantId
+    );
+    const other = claimers.find(
+      c => c.participant_id !== participantId
     );
 
-    // broadcast to everyone else
-    const channel = supabase.channel(`payments-${sessionId}`);
+    if (!me || !other) return;
 
-    await channel.subscribe();
+    let myWeight = 50;
+    let otherWeight = 50;
 
-    await channel.send({
-      type: "broadcast",
-      event: "paid",
-      payload: { participantId },
-    });
+    if (type === "more") {
+      myWeight = 80;
+      otherWeight = 20;
+    }
+
+    if (type === "less") {
+      myWeight = 20;
+      otherWeight = 80;
+    }
+
+    await supabase
+      .from("claims")
+      .update({ amount: myWeight })
+      .eq("id", me.id);
+
+    await supabase
+      .from("claims")
+      .update({ amount: otherWeight })
+      .eq("id", other.id);
+  }
+
+  function getRemainingAmount(itemId: string) {
+    const item = items.find(i => i.id === itemId);
+    if (!item) return 0;
+
+    const claimers = claims.filter(c => c.item_id === itemId);
+    const used = claimers.reduce(
+      (sum, c) => sum + (c.amount ?? 0),
+      0
+    );
+
+    return Math.max(0, (item.price ?? 0) - used);
+  }
+
+  async function commitAmount(claim: Claim) {
+    const item = items.find(i => i.id === claim.item_id);
+    if (!item) return;
+
+    const entered = Number(amountInput || 0);
+
+    if (isNaN(entered) || entered < 0) {
+      alert("Enter a valid amount.");
+      return;
+    }
+
+    // fetch latest claims from database
+    const { data: dbClaims } = await supabase
+      .from("claims")
+      .select("id, amount")
+      .eq("item_id", claim.item_id);
+
+    if (!dbClaims) return;
+
+    const others = dbClaims.filter(c => c.id !== claim.id);
+
+    const usedByOthers = others.reduce(
+      (sum, c) => sum + (c.amount ?? 0),
+      0
+    );
+
+    const maxAllowed = (item.price ?? 0) - usedByOthers;
+
+    if (entered > maxAllowed) {
+      alert(
+        `Only $${maxAllowed.toFixed(2)} remaining for this item.`
+      );
+      return;
+    }
+
+    const { error } = await supabase
+      .from("claims")
+      .update({ amount: entered })
+      .eq("id", claim.id);
+
+    if (error) {
+      console.error(error);
+      alert("Something went wrong. Please try again.");
+      return;
+    }
+
+    setEditingClaim(null);
+    setAmountInput("");
+  }
+
+  /* ================= MARK PAID ================= */
+
+  async function markPaid(pId: string) {
+    // Host can mark anyone; debtor can mark themselves
+    const canMark = isHost || participantId === pId;
+    if (!canMark || status === "completed") return;
+
+    const { error } = await supabase
+      .from("payments")
+      .upsert(
+        {
+          session_id: sessionId,
+          participant_id: pId,
+        },
+        { onConflict: "session_id,participant_id" }
+      );
+
+    if (error) {
+      console.error("Payment failed:", error);
+      alert("Something went wrong. Please try again.");
+      return;
+    }
+
+    setPaidIds(prev =>
+      prev.includes(pId) ? prev : [...prev, pId]
+    );
   }
 
   /* ⭐ NEW — BILL SUMMARY */
 
   const billSummary = useMemo(() => {
-    const total = items.reduce(
+    const subtotal = items.reduce(
       (sum, i) => sum + Number(i.price ?? 0),
       0
     );
@@ -409,12 +680,15 @@ export default function SessionClient({
       .filter(i => claimedItems.has(i.id))
       .reduce((s, i) => s + Number(i.price ?? 0), 0);
 
+    const total = subtotal + taxAmount + tipAmount;
+
     return {
-      total,
+      subtotal,
       claimedTotal,
-      remaining: total - claimedTotal,
+      remaining: Math.max(0, subtotal - claimedTotal),
+      total,
     };
-  }, [items, claims]);
+  }, [items, claims, taxAmount, tipAmount]);
 
   const splitProgress = useMemo(() => {
     if (!items.length) {
@@ -447,20 +721,17 @@ export default function SessionClient({
 
   /* ================= TOTALS ================= */
 
-  const totals = useMemo(() => {
-    const t: Record<string, number> = {};
-    participants.forEach(p => (t[p.id] = 0));
-
-    items.forEach(item => {
-      const claimers = claims.filter(c => c.item_id === item.id);
-      if (!claimers.length) return;
-
-      const split = Number(item.price ?? 0) / claimers.length;
-      claimers.forEach(c => (t[c.participant_id] += split));
-    });
-
-    return t;
-  }, [items, claims, participants]);
+  const totals = useMemo(
+    () =>
+      calculateTotals(
+        items,
+        claims,
+        participants,
+        taxAmount,
+        tipAmount
+      ),
+    [items, claims, participants, taxAmount, tipAmount]
+  );
 
   /* ================= SETTLEMENT ================= */
 
@@ -489,16 +760,98 @@ export default function SessionClient({
       });
   }, [participants, totals, hostParticipantId, paidIds]);
 
-  function createVenmoLink(amount: number) {
-    return `https://venmo.com/?txn=pay&amount=${amount.toFixed(
-      2
-    )}&note=Divvy%20Split`;
+  function createVenmoLink(amount: number, venmoUsername?: string | null) {
+    const params = `txn=pay&amount=${amount.toFixed(2)}&note=Divvy%20Split`;
+    if (venmoUsername?.trim()) {
+      return `https://venmo.com/${encodeURIComponent(venmoUsername.trim())}?${params}`;
+    }
+    return `https://venmo.com/?${params}`;
+  }
+
+  const host = participants.find(p => p.id === hostParticipantId);
+
+  function copyPaymentRequest(fromId: string, amount: number) {
+    const link = generatePaymentLink(sessionId, fromId);
+    const text = `You owe $${amount.toFixed(2)} for our split.\n\nPay here:\n${link}`;
+    void navigator.clipboard.writeText(text);
+  }
+
+  function copyAllPaymentRequests() {
+    const lines = settlements.map(s => {
+      const link = generatePaymentLink(sessionId, s.fromId);
+      return `${s.from}: You owe $${s.amount.toFixed(2)} for our split. Pay here: ${link}`;
+    });
+    void navigator.clipboard.writeText(lines.join("\n\n"));
   }
 
   const isHost = participantId === hostParticipantId;
 
-  function finishSplit() {
-    router.push(`/summary/${sessionId}`);
+  // debounced auto-save tax/tip (host only)
+  useEffect(() => {
+    if (!isHost) return;
+
+    if (saveTimeoutRef.current) {
+      clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = setTimeout(async () => {
+      await supabase
+        .from("sessions")
+        .update({
+          tax_amount: taxAmount,
+          tip_amount: tipAmount,
+        })
+        .eq("id", sessionId);
+    }, 700);
+
+    return () => {
+      if (saveTimeoutRef.current) {
+        clearTimeout(saveTimeoutRef.current);
+      }
+    };
+  }, [taxAmount, tipAmount, isHost, sessionId]);
+
+  async function startReview() {
+    setStatus("reviewing");
+    const { error } = await supabase
+      .from("sessions")
+      .update({ status: "reviewing" })
+      .eq("id", sessionId);
+
+    if (error) {
+      console.error("startReview failed:", error);
+      setStatus("active");
+      alert("Could not start review. Try again or refresh.");
+    }
+  }
+
+  async function confirmSplit() {
+    const { error } = await supabase
+      .from("sessions")
+      .update({ status: "completed" })
+      .eq("id", sessionId);
+
+    if (error) {
+      console.error(error);
+      alert("Something went wrong. Please try again.");
+      return;
+    }
+    setStatus("completed");
+    setShowCompletion(true);
+  }
+
+  async function reopenSplit() {
+    const { error } = await supabase
+      .from("sessions")
+      .update({ status: "active" })
+      .eq("id", sessionId);
+
+    if (error) {
+      console.error(error);
+      alert("Something went wrong. Please try again.");
+      return;
+    }
+    setStatus("active");
   }
 
   /* ================= PAYMENT PROGRESS ================= */
@@ -537,6 +890,68 @@ export default function SessionClient({
     !viewerOwesMoney ||
     paidIds.includes(participantId ?? "");
 
+  const allPaid =
+    totalDebtors > 0 && paidCount === totalDebtors;
+
+  useEffect(() => {
+    if (!allPaid) return;
+    if (status !== "active") return;
+
+    setShowCompletion(true);
+
+    supabase
+      .from("sessions")
+      .update({ status: "completed" })
+      .eq("id", sessionId)
+      .then(({ error }) => {
+        if (!error) setStatus("completed");
+      });
+  }, [allPaid, status, sessionId]);
+
+  const viewerBreakdown = useMemo(() => {
+    if (!participantId) return null;
+
+    const subtotal = items.reduce(
+      (sum, i) => sum + Number(i.price ?? 0),
+      0
+    );
+
+    let foodTotal = 0;
+
+    items.forEach(item => {
+      const claimers = claims.filter(c => c.item_id === item.id);
+      if (!claimers.length) return;
+
+      const myClaim = claimers.find(
+        c => c.participant_id === participantId
+      );
+      if (myClaim) {
+        foodTotal += myClaim.amount ?? 0;
+      }
+    });
+
+    const extra = taxAmount + tipAmount;
+
+    let taxShare = 0;
+    let tipShare = 0;
+
+    if (subtotal > 0 && extra > 0) {
+      const ratio = foodTotal / subtotal;
+
+      taxShare = ratio * taxAmount;
+      tipShare = ratio * tipAmount;
+    }
+
+    const total = foodTotal + taxShare + tipShare;
+
+    return {
+      foodTotal,
+      taxShare,
+      tipShare,
+      total,
+    };
+  }, [participantId, items, claims, taxAmount, tipAmount]);
+
   const personalCard = (() => {
     if (!participantId) return null;
 
@@ -553,24 +968,12 @@ export default function SessionClient({
           </p>
 
           <a
-            href={createVenmoLink(viewerSettlement!.amount)}
+            href={createVenmoLink(viewerSettlement!.amount, host?.venmo_username)}
             target="_blank"
             className="block text-center bg-green-600 text-white py-2.5 rounded-lg font-medium"
           >
             Pay now
           </a>
-        </div>
-      );
-    }
-
-    // viewer finished
-    if (sessionStage !== "Adding items") {
-      return (
-        <div className="bg-gray-50 border rounded-xl p-4 text-center">
-          <p className="font-medium">You're all set ✅</p>
-          <p className="text-sm text-gray-500">
-            Waiting for others to finish.
-          </p>
         </div>
       );
     }
@@ -606,7 +1009,7 @@ export default function SessionClient({
     if (sessionStage === "Settling payments" && viewerOwesMoney) {
       return (
         <a
-          href={createVenmoLink(viewerSettlement!.amount)}
+          href={createVenmoLink(viewerSettlement!.amount, host?.venmo_username)}
           target="_blank"
           className="block text-center bg-green-600 text-white py-3 rounded-xl font-medium"
         >
@@ -615,13 +1018,13 @@ export default function SessionClient({
       );
     }
 
-    if (sessionStage === "Complete" && isHost) {
+    if (sessionStage === "Complete" && isHost && status === "active") {
       return (
         <button
-          onClick={finishSplit}
+          onClick={startReview}
           className="w-full bg-black text-white py-3 rounded-xl font-medium"
         >
-          Finish Split
+          Review Split
         </button>
       );
     }
@@ -660,17 +1063,92 @@ export default function SessionClient({
           <p className="text-sm text-gray-500">
             {sessionStage}
           </p>
+          {splitType && (
+            <p className="text-xs text-gray-400">
+              {splitType === "restaurant"
+                ? "Restaurant Split"
+                : "General Split"}
+            </p>
+          )}
+          {joinCode && (
+            <div className="mt-3">
+              <JoinCodeCard code={joinCode} />
+            </div>
+          )}
         </div>
       }
       footer={primaryAction}
     >
-      <div className="space-y-6">
-        {/* ACTIVITY FEED */}
+      <div className="space-y-6 pb-12">
+        {/* Step indicator */}
+        <div className="bg-gray-100 rounded-lg p-3 text-sm text-center font-medium text-gray-700">
+          {sessionStage}
+        </div>
+
+        {/* PARTICIPANTS */}
+        <div>
+          <ParticipantList
+            participants={participants}
+            onlineIds={onlineIds}
+            paidIds={paidIds}
+            hostParticipantId={hostParticipantId}
+            getAvatarColor={getAvatarColor}
+          />
+        </div>
+
+        {/* SPLIT PROGRESS */}
+        <SplitProgress
+          percent={splitProgress.percent}
+          unclaimedCount={splitProgress.unclaimedCount}
+          allClaimed={splitProgress.allClaimed}
+          sessionStage={sessionStage}
+        />
+
+        {/* ADD ITEM — at top for immediate use */}
+        <div
+          className={`flex gap-2 transition-all ${
+            focusSection === "input"
+              ? "scale-[1.02]"
+              : "opacity-80"
+          }`}
+        >
+          <input
+            ref={itemInputRef}
+            placeholder="Item"
+            value={name}
+            onChange={e => setName(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                priceInputRef.current?.focus();
+              }
+            }}
+            className="border p-2 rounded flex-1"
+          />
+          <input
+            ref={priceInputRef}
+            placeholder="$"
+            value={price}
+            onChange={e => setPrice(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Enter") addItem();
+            }}
+            className="border p-2 rounded w-24"
+          />
+          <button
+            onClick={addItem}
+            className="bg-black text-white px-4 rounded"
+          >
+            Add
+          </button>
+        </div>
+
+        {/* Activity feed */}
         <div className="space-y-2">
           {activities.map(a => (
             <div
               key={a.id}
-              className="bg-green-50 text-green-800 px-3 py-2 rounded-lg text-sm animate-pulse"
+              className="bg-green-50 text-green-800 px-3 py-2 rounded-lg text-sm animate-slide-in"
             >
               {a.message}
             </div>
@@ -687,231 +1165,52 @@ export default function SessionClient({
           {personalCard}
         </div>
 
-        {/* PARTICIPANTS */}
-        <div>
-          <div className="flex flex-wrap gap-3 mt-2 text-sm text-gray-600">
-            {participants.map(p => {
-              const online = onlineIds.includes(p.id);
+        {/* ITEMS */}
+        <section>
+          <h2 className="text-lg font-semibold mb-2">Items</h2>
+          <ItemList
+            items={items}
+            claims={claims}
+            participants={participants}
+            participantId={participantId}
+            claimingItemIds={claimingItemIds}
+            focusSection={focusSection}
+            toggleClaim={toggleClaim}
+            getRemainingAmount={getRemainingAmount}
+            setEditingClaim={setEditingClaim}
+            setAmountInput={setAmountInput}
+            lastClaimedItem={lastClaimedItem}
+          />
+        </section>
 
-              return (
-                <div key={p.id} className="flex items-center gap-2">
-                  {/* Avatar */}
-                  <div
-                    className={`w-6 h-6 rounded-full text-white text-xs flex items-center justify-center ${getAvatarColor(
-                      p.id
-                    )}`}
-                  >
-                    {p.name.charAt(0).toUpperCase()}
-                  </div>
-
-                  {/* Name */}
-                  <span>{p.name}</span>
-
-                  {online && (
-                    <span className="w-2 h-2 rounded-full bg-green-500" />
-                  )}
-
-                  {paidIds.includes(p.id) && (
-                    <span className="text-xs bg-green-600 text-white px-2 py-0.5 rounded-full">
-                      Paid
-                    </span>
-                  )}
-
-                  {p.id === hostParticipantId && (
-                    <span className="text-xs bg-black text-white px-2 py-0.5 rounded-full">
-                      Host
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+        {/* BILL — combined summary + tax/tip */}
+        <section>
+          <h2 className="text-lg font-semibold mb-2">Bill</h2>
+          <div className="bg-white rounded-xl shadow-sm p-4 space-y-4">
+            <BillSummaryCard
+              subtotal={billSummary.subtotal}
+              claimedTotal={billSummary.claimedTotal}
+              remaining={billSummary.remaining}
+              taxAmount={taxAmount}
+              tipAmount={tipAmount}
+              total={billSummary.total}
+              inline
+            />
+            <TaxTipInputs
+              taxInput={taxInput}
+              tipInput={tipInput}
+              setTaxInput={setTaxInput}
+              setTipInput={setTipInput}
+              inline
+            />
           </div>
-        </div>
+        </section>
 
-      {/* ✅ BILL SUMMARY CARD */}
-      <div className="bg-white rounded-xl shadow-sm p-4 space-y-2">
-      <div className="flex justify-between text-sm">
-        <span>Total Bill</span>
-        <span className="font-semibold">
-        ${billSummary.total.toFixed(2)}
-        </span>
-      </div>
-
-      <div className="flex justify-between text-sm">
-        <span>Claimed</span>
-        <span className="text-green-600">
-        ${billSummary.claimedTotal.toFixed(2)}
-        </span>
-      </div>
-
-      <div className="flex justify-between text-sm">
-        <span>Unclaimed</span>
-        <span className="text-orange-600">
-        ${billSummary.remaining.toFixed(2)}
-        </span>
-      </div>
-      </div>
-
-      {/* SPLIT PROGRESS */}
-      <div className="space-y-2">
-      <div className="flex justify-between text-sm">
-        <span className="font-medium">Split Progress</span>
-        <span>{splitProgress.percent}%</span>
-      </div>
-
-      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-        <div
-        className="h-full bg-green-500 transition-all duration-500 ease-out"
-        style={{ width: `${splitProgress.percent}%` }}
-        />
-      </div>
-
-      {splitProgress.unclaimedCount > 0 && (
-        <p className="text-xs text-gray-500">
-        {splitProgress.unclaimedCount} item
-        {splitProgress.unclaimedCount > 1 && "s"} still unclaimed
-        </p>
-      )}
-
-      {splitProgress.allClaimed && (
-        <p className="text-xs text-green-700 font-medium">
-        ✓ Everyone has claimed items
-        </p>
-      )}
-
-      {sessionStage === "Complete" && (
-        <div className="bg-green-50 text-green-800 text-center py-3 rounded-xl font-medium animate-pulse ring-2 ring-green-300">
-          🎉 Everyone is settled up!
-        </div>
-      )}
-      </div>
-
-      {/* Invite */}
-      <button
-        onClick={shareInvite}
-        disabled={sharing}
-        className="bg-blue-600 text-white px-4 py-2 rounded-lg"
-      >
-        {sharing ? "Sharing…" : "Invite Friends"}
-      </button>
-
-      {/* Add item */}
-      <div
-        className={`flex gap-2 transition-all ${
-          focusSection === "input"
-            ? "scale-[1.02]"
-            : "opacity-80"
-        }`}
-      >
-        <input
-          ref={itemInputRef}
-          placeholder="Item"
-          value={name}
-          onChange={e => setName(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              priceInputRef.current?.focus();
-            }
-          }}
-          className="border p-2 rounded flex-1"
-        />
-        <input
-          ref={priceInputRef}
-          placeholder="$"
-          value={price}
-          onChange={e => setPrice(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === "Enter") addItem();
-          }}
-          className="border p-2 rounded w-24"
-        />
-        <button
-          onClick={addItem}
-          className="bg-black text-white px-4 rounded"
-        >
-          Add
-        </button>
-      </div>
-
-      {/* ITEMS */}
-
-      {items.length === 0 ? (
-        <div className="bg-white rounded-xl shadow-sm p-10 text-center">
-          <p className="text-gray-600 font-medium">
-            No items yet
-          </p>
-
-          <p className="text-sm text-gray-500 mt-2">
-            Add items to start splitting the bill.
-          </p>
-        </div>
-      ) : (
-        <ul
-          className={`bg-white rounded-xl shadow-sm divide-y transition-all ${
-            focusSection === "items"
-              ? "ring-2 ring-green-200"
-              : ""
-          }`}
-        >
-          {items.map(item => {
-            const claimedByMe =
-              participantId &&
-              claims.some(
-                c =>
-                  c.item_id === item.id &&
-                  c.participant_id === participantId
-              );
-
-            const owners = participants
-              .filter(p =>
-                claims.some(
-                  c =>
-                    c.item_id === item.id &&
-                    c.participant_id === p.id
-                )
-              )
-              .map(p => p.name);
-
-            return (
-              <li
-                key={item.id}
-                onClick={() => toggleClaim(item.id)}
-                className={`px-4 py-3 cursor-pointer transition-all duration-150 ${
-                  claimedByMe
-                    ? "bg-green-100 border-l-4 border-green-500"
-                    : "hover:bg-gray-50"
-                } ${
-                  lastClaimedItem === item.id
-                    ? "scale-[1.02] ring-2 ring-green-300"
-                    : ""
-                }`}
-              >
-                <div className="flex justify-between">
-                  <span>{item.name}</span>
-                  <span>${Number(item.price ?? 0).toFixed(2)}</span>
-                </div>
-
-                {owners.length > 0 && (
-                  <div className="text-sm text-gray-500 mt-1">
-                    ✓ {owners.join(", ")}
-                  </div>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {/* TOTALS */}
-      <div>
-        <h2 className="text-lg font-semibold mb-2">Live Totals</h2>
-
-        <div className="bg-white rounded-xl shadow-sm divide-y">
-          {participants.map(p => {
-            const online = onlineIds.includes(p.id);
-
-            return (
+        {/* LIVE TOTALS */}
+        <section>
+          <h2 className="text-lg font-semibold mb-2">Live Totals</h2>
+          <div className="bg-white rounded-xl shadow-sm divide-y">
+            {participants.map(p => (
               <div
                 key={p.id}
                 className="flex justify-between items-center px-4 py-3"
@@ -924,111 +1223,221 @@ export default function SessionClient({
                   >
                     {p.name.charAt(0).toUpperCase()}
                   </div>
-
                   <span>{p.name}</span>
                 </div>
-
                 <span className="font-semibold transition-all duration-300">
                   ${totals[p.id].toFixed(2)}
                 </span>
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        </section>
+
+        {/* SETTLE UP */}
+        <section>
+          <SettlementPanel
+        settlements={settlements}
+        paidIds={paidIds}
+        paidCount={paidCount}
+        totalDebtors={totalDebtors}
+        isHost={isHost}
+        status={status}
+        participantId={participantId}
+        sessionId={sessionId}
+        markPaid={markPaid}
+        createVenmoLink={createVenmoLink}
+        hostVenmoUsername={host?.venmo_username}
+        copyPaymentRequest={copyPaymentRequest}
+        copyAllPaymentRequests={copyAllPaymentRequests}
+        startReview={startReview}
+      />
+        </section>
       </div>
 
-      {/* SETTLEMENT */}
-      {settlements.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Settle Up</h2>
+      {/* Floating Add Item */}
+      {status !== "completed" && (
+        <button
+          type="button"
+          onClick={() => {
+            itemInputRef.current?.scrollIntoView({
+              behavior: "smooth",
+            });
+            itemInputRef.current?.focus();
+          }}
+          className="fixed bottom-6 right-6 z-40 bg-black text-white rounded-full px-4 py-3 shadow-lg"
+        >
+          + Add Item
+        </button>
+      )}
 
-          <p className="text-sm text-gray-600">
-            {paidCount} of {totalDebtors} people paid
-          </p>
+      {/* Review Modal */}
+      {status === "reviewing" && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-[95%] max-w-md space-y-5 text-center">
+            <h2 className="text-2xl font-semibold">
+              Review Split
+            </h2>
 
-          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mt-1">
-            <div
-              className="h-full bg-green-500 transition-all"
-              style={{
-                width: `${
-                  totalDebtors
-                    ? (paidCount / totalDebtors) * 100
-                    : 0
-                }%`,
-              }}
-            />
-        </div>
+            <p className="text-gray-600">
+              Double check everything before finalizing.
+            </p>
 
+            <div className="bg-gray-50 rounded-xl p-4 text-sm space-y-2">
+              <div className="flex justify-between">
+                <span>Subtotal</span>
+                <span>${billSummary.subtotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Tax</span>
+                <span>${taxAmount.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Tip</span>
+                <span>${tipAmount.toFixed(2)}</span>
+              </div>
+              <div className="border-t pt-2 flex justify-between font-semibold">
+                <span>Total</span>
+                <span>${billSummary.total.toFixed(2)}</span>
+              </div>
+            </div>
 
-          <div className="bg-white rounded-xl shadow-sm divide-y">
-            {settlements.map((s, i) => {
-              const viewerIsDebtor = participantId === s.fromId;
-
-              return (
-                <div
-                  key={i}
-                  className={`px-4 py-3 space-y-2 transition ${
-                    paidIds.includes(s.fromId)
-                      ? "bg-green-50"
-                      : ""
-                  }`}
-                >
-                  <div className="flex justify-between">
-                    <span>
-                      {viewerIsDebtor
-                        ? `You owe ${s.to}`
-                        : `${s.from} owes ${s.to}`}
-                    </span>
-                    <span className="font-semibold">
-                      ${s.amount.toFixed(2)}
-                    </span>
-                  </div>
-
-                  {viewerIsDebtor && !paidIds.includes(s.fromId) && (
-                    <div className="flex gap-2">
-                        <a
-                        href={createVenmoLink(s.amount)}
-                        target="_blank"
-                        className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm"
-                        >
-                        Pay with Venmo
-                        </a>
-
-                        <button
-                        onClick={() => markPaid(s.fromId)}
-                        className="bg-gray-900 text-white px-3 py-1.5 rounded-lg text-sm"
-                        >
-                        Mark as Paid
-                        </button>
-                    </div>
-                    )}
-
-                    {paidIds.includes(s.fromId) && viewerIsDebtor && (
-                    <span className="text-green-700 text-sm font-medium">
-                        ✓ Paid
-                    </span>
-                    )}
-                </div>
-              );
-            })}
+            <div className="space-y-2">
+              <button
+                onClick={confirmSplit}
+                className="w-full bg-black text-white py-3 rounded-xl font-medium"
+              >
+                Confirm Split
+              </button>
+              <button
+                onClick={reopenSplit}
+                className="w-full text-gray-500"
+              >
+                Edit Split
+              </button>
+            </div>
           </div>
-
-          {isHost && (
-            <button
-              onClick={finishSplit}
-              disabled={paidCount !== totalDebtors}
-              className={`w-full py-3 rounded-xl font-medium ${
-                paidCount === totalDebtors
-                  ? "bg-black text-white"
-                  : "bg-gray-300 text-gray-600"
-              }`}
-            >
-              Finish Split
-            </button>
-          )}
         </div>
       )}
-      </div>
+
+      {/* Completion Overlay UI */}
+      {showCompletion && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-[95%] max-w-md space-y-6 text-center">
+            <h2 className="text-2xl font-semibold">
+              Split Summary
+            </h2>
+
+            <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span>Subtotal</span>
+                <span>${billSummary.subtotal.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Tax</span>
+                <span>${taxAmount.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Tip</span>
+                <span>${tipAmount.toFixed(2)}</span>
+              </div>
+              <div className="border-t pt-2 flex justify-between font-semibold">
+                <span>Total</span>
+                <span>${billSummary.total.toFixed(2)}</span>
+              </div>
+            </div>
+
+            <div className="bg-white border rounded-xl p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-gray-700">
+                Your Final Breakdown
+              </h3>
+
+              {viewerBreakdown && (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span>Food</span>
+                    <span>${viewerBreakdown.foodTotal.toFixed(2)}</span>
+                  </div>
+
+                  {taxAmount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span>Tax</span>
+                      <span>${viewerBreakdown.taxShare.toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  {tipAmount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span>Tip</span>
+                      <span>${viewerBreakdown.tipShare.toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  <div className="border-t pt-2 flex justify-between font-semibold">
+                    <span>Total You Paid</span>
+                    <span>${viewerBreakdown.total.toFixed(2)}</span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <button
+              onClick={() => router.push("/")}
+              className="w-full bg-black text-white py-3 rounded-xl font-medium"
+            >
+              Start New Split
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editingClaim && (
+        <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50">
+          <div className="bg-white w-full max-w-md rounded-t-2xl p-6 space-y-4">
+            <h3 className="text-lg font-semibold text-center">
+              Enter Amount
+            </h3>
+
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              value={amountInput}
+              onChange={e => setAmountInput(e.target.value)}
+              placeholder="0.00"
+              className="w-full border rounded-lg p-3 text-center text-lg"
+            />
+
+            <div className="grid grid-cols-3 gap-2">
+              {[5, 10, 20].map(v => (
+                <button
+                  key={v}
+                  onClick={() => setAmountInput(String(v))}
+                  className="border rounded-lg py-2"
+                >
+                  ${v}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => commitAmount(editingClaim)}
+              className="w-full bg-black text-white py-3 rounded-xl"
+            >
+              Save
+            </button>
+
+            <button
+              onClick={() => {
+                setEditingClaim(null);
+                setAmountInput("");
+              }}
+              className="w-full text-gray-500"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </SessionShell>
   );
 }
