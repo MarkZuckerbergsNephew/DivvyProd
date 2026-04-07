@@ -48,7 +48,7 @@ Perfect for roommates, trips, restaurants, and shared living.
 ## Future Improvements
 
 - Venmo / PayPal / Apple Pay integration  
-- Group accounts for roommates and trips  
+- Group accounts for roommates and trips and other long-term splits
 - AI receipt correction & learning  
 - Budgeting and monthly summaries  
 
