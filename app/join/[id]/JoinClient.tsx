@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { motion } from "framer-motion";
 
 export default function JoinClient({
   sessionId,
@@ -32,7 +33,6 @@ export default function JoinClient({
       return;
     }
 
-    // First joiner becomes host
     const { data: session } = await supabase
       .from("sessions")
       .select("host_participant_id")
@@ -50,18 +50,24 @@ export default function JoinClient({
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center px-6">
-      <div className="w-full max-w-sm space-y-4">
-        <h1 className="text-2xl font-semibold text-center">
-          Join Split
+    <main className="min-h-screen flex items-center justify-center px-5 py-8">
+      <motion.div
+        className="w-full max-w-[420px] md:max-w-lg lg:max-w-xl rounded-2xl border border-slate-200 bg-white/95 backdrop-blur-sm p-6 space-y-5 shadow-sm animate-idle-shimmer"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35 }}
+      >
+        <h1 className="text-2xl font-semibold text-center text-slate-900">
+          Join split
         </h1>
 
         <input
+          type="text"
           placeholder="Your name"
           value={name}
-          onChange={e => setName(e.target.value)}
-          onKeyDown={e => e.key === "Enter" && join()}
-          className="border rounded-lg px-3 py-2 w-full"
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && join()}
+          className="w-full min-h-[48px] px-4 rounded-xl border border-slate-200 bg-slate-50/50 text-base placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
         />
 
         {error && (
@@ -69,12 +75,13 @@ export default function JoinClient({
         )}
 
         <button
+          type="button"
           onClick={join}
-          className="w-full bg-black text-white py-3 rounded-xl"
+          className="w-full bg-slate-900 text-white py-3.5 rounded-xl font-semibold text-base min-h-[48px] active:scale-[0.98] transition-transform hover:bg-slate-800"
         >
           Join
         </button>
-      </div>
+      </motion.div>
     </main>
   );
 }

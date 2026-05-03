@@ -1,12 +1,12 @@
 "use client";
 
 import { useState, useEffect, useMemo, useRef } from "react";
-import confetti from "canvas-confetti";
 import { useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { calculateTotals } from "@/lib/billMath";
 import { generatePaymentLink } from "@/lib/paymentLink";
 import { useSessionRealtime } from "@/hooks/useSessionRealtime";
+import { motion } from "framer-motion";
 import {
   SessionShell,
   BillSummaryCard,
@@ -15,8 +15,9 @@ import {
   ParticipantList,
   ItemList,
   SettlementPanel,
+  JoinCodeBanner,
+  ScanReceiptModal,
 } from "@/components/session";
-import JoinCodeCard from "@/components/JoinCodeCard";
 
 /* ================= TYPES ================= */
 
@@ -45,11 +46,6 @@ type SettlementRow = {
   toId: string;
   to: string;
   amount: number;
-};
-
-type Activity = {
-  id: string;
-  message: string;
 };
 
 /* ================= UTILITIES ================= */
@@ -124,8 +120,6 @@ export default function SessionClient({
   const [sharing, setSharing] = useState(false);
   const [onlineIds, setOnlineIds] = useState<string[]>([]);
 
-  const [activities, setActivities] = useState<Activity[]>([]);
-  const prevClaimsRef = useRef<Claim[]>([]);
   const saveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   const itemInputRef = useRef<HTMLInputElement>(null);
@@ -144,6 +138,7 @@ export default function SessionClient({
 
   const [finishing, setFinishing] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
+  const [showScanModal, setShowScanModal] = useState(false);
 
   /* ================= INVITE ================= */
 
@@ -281,14 +276,6 @@ export default function SessionClient({
     }
   }, [status]);
 
-  const confettiFiredRef = useRef(false);
-  useEffect(() => {
-    if (showCompletion && !confettiFiredRef.current) {
-      confettiFiredRef.current = true;
-      confetti({ particleCount: 120, spread: 70 });
-    }
-  }, [showCompletion]);
-
   useEffect(() => {
     if (items.length === 0) {
       itemInputRef.current?.focus();
@@ -354,36 +341,6 @@ export default function SessionClient({
       void supabase.removeChannel(channel);
     };
   }, [participantId, participantName, sessionId]);
-
-  /* ================= ACTIVITY ================= */
-
-  useEffect(() => {
-    const prev = prevClaimsRef.current;
-
-    const newClaims = claims.filter(
-      c => !prev.some(p => p.id === c.id)
-    );
-
-    newClaims.forEach(claim => {
-      const user = participants.find(p => p.id === claim.participant_id);
-      const item = items.find(i => i.id === claim.item_id);
-
-      if (!user || !item) return;
-
-      const activity: Activity = {
-        id: crypto.randomUUID(),
-        message: `${user.name} claimed ${item.name}`,
-      };
-
-      setActivities(a => [activity, ...a.slice(0, 2)]);
-
-      setTimeout(() => {
-        setActivities(a => a.filter(x => x.id !== activity.id));
-      }, 2500);
-    });
-
-    prevClaimsRef.current = claims;
-  }, [claims, participants, items]);
 
   /* ================= CLAIM ================= */
 
@@ -516,6 +473,34 @@ export default function SessionClient({
     itemInputRef.current?.focus();
   }
 
+  async function addItemsFromScan(items: { name: string; price: number }[]) {
+    if (status === "completed") return;
+    for (const it of items) {
+      const { error } = await supabase.from("items").insert({
+        session_id: sessionId,
+        name: it.name.trim(),
+        price: it.price,
+      });
+      if (error) throw error;
+    }
+    fetchItems();
+  }
+
+  async function extractItemsFromFile(file: File): Promise<{ name: string; price: number }[]> {
+    const formData = new FormData();
+    formData.set("image", file);
+    const res = await fetch("/api/ocr", {
+      method: "POST",
+      body: formData,
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error ?? "Failed to read receipt");
+    }
+    const data = await res.json();
+    return Array.isArray(data.items) ? data.items : [];
+  }
+
   async function updateSessionTitle() {
     if (!titleInput.trim()) return;
 
@@ -586,6 +571,65 @@ export default function SessionClient({
     );
 
     return Math.max(0, (item.price ?? 0) - used);
+  }
+
+  async function claimRemaining(itemId: string) {
+    if (!participantId || status === "completed") return;
+    const remaining = getRemainingAmount(itemId);
+    if (remaining <= 0) return;
+    if (claimingItemIds.has(itemId)) return;
+
+    setClaimingItemIds(prev => new Set(prev).add(itemId));
+
+    try {
+      const existing = claims.find(
+        c => c.item_id === itemId && c.participant_id === participantId
+      );
+      const newAmount = (existing?.amount ?? 0) + remaining;
+
+      if (existing) {
+        const { error } = await supabase
+          .from("claims")
+          .update({ amount: newAmount })
+          .eq("id", existing.id);
+
+        if (error) {
+          console.error(error);
+          return;
+        }
+        setClaims(prev =>
+          prev.map(c =>
+            c.id === existing.id ? { ...c, amount: newAmount } : c
+          )
+        );
+      } else {
+        const { data, error } = await supabase
+          .from("claims")
+          .insert({
+            item_id: itemId,
+            participant_id: participantId,
+            amount: newAmount,
+          })
+          .select()
+          .single();
+
+        if (error) {
+          console.error(error);
+          return;
+        }
+        if (data) {
+          setClaims(prev => [...prev, data as Claim]);
+        }
+      }
+      setLastClaimedItem(itemId);
+      setTimeout(() => setLastClaimedItem(null), 1200);
+    } finally {
+      setClaimingItemIds(prev => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+    }
   }
 
   async function commitAmount(claim: Claim) {
@@ -698,20 +742,38 @@ export default function SessionClient({
         allClaimed: false,
       };
     }
-  
-    // items that have at least one claim
-    const claimedItemIds = new Set(claims.map(c => c.item_id));
-  
-    const claimedCount = items.filter(i =>
-      claimedItemIds.has(i.id)
-    ).length;
-  
-    const unclaimedCount = items.length - claimedCount;
-  
-    const percent = Math.round(
-      (claimedCount / items.length) * 100
+
+    const subtotal = items.reduce(
+      (sum, i) => sum + Number(i.price ?? 0),
+      0
     );
-  
+    if (subtotal <= 0) {
+      return {
+        percent: 100,
+        unclaimedCount: 0,
+        allClaimed: true,
+      };
+    }
+
+    // Total $ claimed across all claims
+    const totalClaimedAmount = claims.reduce(
+      (sum, c) => sum + Number(c.amount ?? 0),
+      0
+    );
+    const percent = Math.round(
+      Math.min(100, (totalClaimedAmount / subtotal) * 100)
+    );
+
+    // Count items that still have remaining $ to claim (with tiny epsilon for float)
+    const epsilon = 0.005;
+    const unclaimedCount = items.filter((i) => {
+      const itemTotal = Number(i.price ?? 0);
+      const claimedOnItem = claims
+        .filter((c) => c.item_id === i.id)
+        .reduce((s, c) => s + Number(c.amount ?? 0), 0);
+      return itemTotal - claimedOnItem > epsilon;
+    }).length;
+
     return {
       percent,
       unclaimedCount,
@@ -958,19 +1020,18 @@ export default function SessionClient({
     // viewer owes money
     if (viewerOwesMoney && !viewerIsDone) {
       return (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-4 space-y-2">
-          <p className="text-sm text-green-800">
+        <div className="rounded-2xl border border-slate-200/80 bg-white/90 backdrop-blur-xl shadow-md p-5 space-y-4">
+          <p className="text-sm font-medium text-slate-600">
             You owe {viewerSettlement!.to}
           </p>
-
-          <p className="text-2xl font-semibold text-green-900">
+          <p className="text-2xl font-bold text-slate-900 tabular-nums">
             ${viewerSettlement!.amount.toFixed(2)}
           </p>
-
           <a
             href={createVenmoLink(viewerSettlement!.amount, host?.venmo_username)}
             target="_blank"
-            className="block text-center bg-green-600 text-white py-2.5 rounded-lg font-medium"
+            rel="noopener noreferrer"
+            className="block w-full text-center min-h-[48px] flex items-center justify-center rounded-xl bg-teal-500 text-white font-semibold hover:bg-teal-600 active:scale-[0.98] transition-all"
           >
             Pay now
           </a>
@@ -981,55 +1042,99 @@ export default function SessionClient({
     return null;
   })();
 
-  const primaryAction = (() => {
-    if (sessionStage === "Adding items") {
+  const scrollToAddItem = () => {
+    itemInputRef.current?.scrollIntoView({ behavior: "smooth" });
+    itemInputRef.current?.focus();
+  };
+
+  const stickyActionBar = (() => {
+    if (status === "completed") {
       return (
         <button
-          onClick={() =>
-            document.querySelector("input")?.focus()
-          }
-          className="w-full bg-black text-white py-3 rounded-xl font-medium"
+          type="button"
+          onClick={() => setShowCompletion(true)}
+          className="w-full min-h-[48px] bg-slate-900 text-white rounded-xl font-semibold active:scale-[0.98] transition-transform hover:bg-slate-800"
         >
-          Add an item
+          View summary
         </button>
       );
     }
 
-    if (sessionStage === "Claiming items") {
-      return (
-        <button
-          onClick={shareInvite}
-          className="w-full bg-blue-600 text-white py-3 rounded-xl font-medium"
-        >
-          Invite friends
-        </button>
-      );
-    }
+    const addItemBtn = (
+      <button
+        key="add"
+        type="button"
+        onClick={scrollToAddItem}
+        className="min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white/90 font-medium text-slate-800 active:scale-[0.98] transition-transform shrink-0"
+      >
+        + Item
+      </button>
+    );
+
+    const inviteBtn = joinCode ? (
+      <button
+        key="invite"
+        type="button"
+        onClick={shareInvite}
+        className="min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white/90 font-medium text-slate-600 active:scale-[0.98] transition-transform shrink-0"
+      >
+        Invite
+      </button>
+    ) : null;
 
     if (sessionStage === "Settling payments" && viewerOwesMoney) {
       return (
-        <a
-          href={createVenmoLink(viewerSettlement!.amount, host?.venmo_username)}
-          target="_blank"
-          className="block text-center bg-green-600 text-white py-3 rounded-xl font-medium"
-        >
-          Pay ${viewerSettlement!.amount.toFixed(2)}
-        </a>
+        <div className="flex gap-2 w-full max-w-[480px] md:max-w-4xl lg:max-w-6xl mx-auto">
+          {addItemBtn}
+          {inviteBtn}
+          <a
+            href={createVenmoLink(viewerSettlement!.amount, host?.venmo_username)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex-1 min-h-[48px] flex items-center justify-center rounded-xl bg-emerald-600 text-white font-medium active:scale-[0.98] transition-transform"
+          >
+            Pay ${viewerSettlement!.amount.toFixed(2)}
+          </a>
+        </div>
       );
     }
 
     if (sessionStage === "Complete" && isHost && status === "active") {
       return (
         <button
+          type="button"
           onClick={startReview}
-          className="w-full bg-black text-white py-3 rounded-xl font-medium"
+          className="w-full min-h-[48px] bg-slate-900 text-white rounded-xl font-medium active:scale-[0.98] transition-transform hover:bg-slate-800"
         >
           Review Split
         </button>
       );
     }
 
-    return null;
+    return (
+      <div className="flex gap-2 w-full max-w-[480px] md:max-w-4xl lg:max-w-6xl mx-auto">
+        {addItemBtn}
+        {inviteBtn}
+        {sessionStage === "Adding items" && (
+          <button
+            type="button"
+            onClick={scrollToAddItem}
+            className="flex-1 min-h-[48px] bg-slate-900 text-white rounded-xl font-medium active:scale-[0.98] transition-transform hover:bg-slate-800"
+          >
+            Add item
+          </button>
+        )}
+        {sessionStage === "Claiming items" && (
+          <button
+            type="button"
+            onClick={shareInvite}
+            className="flex-1 min-h-[48px] bg-slate-900 text-white rounded-xl font-medium active:scale-[0.98] transition-transform hover:bg-slate-800"
+          >
+            Invite friends
+          </button>
+        )}
+      </div>
+    );
   })();
 
   /* ================= UI ================= */
@@ -1037,252 +1142,327 @@ export default function SessionClient({
   return (
     <SessionShell
       header={
-        <div className="max-w-xl mx-auto px-4 py-4 space-y-1">
-          {editingTitle ? (
-            <input
-              value={titleInput}
-              onChange={e => setTitleInput(e.target.value)}
-              onBlur={updateSessionTitle}
-              onKeyDown={e => {
-                if (e.key === "Enter") updateSessionTitle();
-              }}
-              autoFocus
-              className="text-2xl font-semibold w-full outline-none"
-            />
-          ) : (
-            <h1
-              onClick={() => isHost && setEditingTitle(true)}
-              className={`text-2xl font-semibold ${
-                isHost ? "cursor-pointer hover:opacity-70" : ""
-              }`}
-            >
-              {sessionTitle}
-            </h1>
-          )}
-
-          <p className="text-sm text-gray-500">
-            {sessionStage}
-          </p>
-          {splitType && (
-            <p className="text-xs text-gray-400">
-              {splitType === "restaurant"
-                ? "Restaurant Split"
-                : "General Split"}
-            </p>
-          )}
-          {joinCode && (
-            <div className="mt-3">
-              <JoinCodeCard code={joinCode} />
+        <div className="max-w-[480px] md:max-w-4xl lg:max-w-6xl mx-auto px-4 pt-3 pb-4">
+          <div className="flex flex-col md:flex-row md:items-end md:gap-4 lg:gap-6 gap-4">
+            {/* Left: title + participants + split progress; cap width so split progress and join code don't overlap */}
+            <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-end gap-4 lg:gap-6 md:max-w-[65%] lg:max-w-[70%]">
+              <div className="min-w-0 space-y-3 flex-none">
+                <div>
+                  {editingTitle ? (
+                    <input
+                      value={titleInput}
+                      onChange={e => setTitleInput(e.target.value)}
+                      onBlur={updateSessionTitle}
+                      onKeyDown={e => {
+                        if (e.key === "Enter") updateSessionTitle();
+                      }}
+                      autoFocus
+                      className="text-2xl sm:text-3xl font-bold w-full outline-none bg-transparent text-slate-900"
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => isHost && setEditingTitle(true)}
+                      className={`text-left w-full rounded-lg px-2 -mx-2 py-1.5 border border-transparent hover:border-slate-200 focus:border-teal-400 focus:outline-none transition-colors ${
+                        isHost ? "cursor-pointer active:opacity-80" : "cursor-default"
+                      }`}
+                    >
+                      <span className="text-2xl sm:text-3xl font-bold text-slate-900 flex items-center gap-2 flex-wrap">
+                        {sessionTitle}
+                        {isHost && (
+                          <span className="inline-flex items-center gap-1.5 text-xs font-normal text-slate-400">
+                            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                            </svg>
+                            Tap to rename
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  )}
+                </div>
+                <div className="min-w-0 w-fit min-w-[200px] max-w-[420px]">
+                  <ParticipantList
+                    participants={participants}
+                    onlineIds={onlineIds}
+                    paidIds={paidIds}
+                    hostParticipantId={hostParticipantId}
+                    getAvatarColor={getAvatarColor}
+                  />
+                </div>
+              </div>
+              <div className="min-w-0 sm:min-w-[220px] flex-1">
+                <SplitProgress
+                  percent={splitProgress.percent}
+                  unclaimedCount={splitProgress.unclaimedCount}
+                  allClaimed={splitProgress.allClaimed}
+                  sessionStage={sessionStage}
+                />
+              </div>
             </div>
-          )}
+
+            {/* Right: join code stays in original position (pushed right) */}
+            {joinCode && (
+              <div className="flex-shrink-0 md:ml-auto">
+                <JoinCodeBanner
+                  code={joinCode}
+                  participantCount={participants.length}
+                  sessionId={sessionId}
+                />
+              </div>
+            )}
+          </div>
         </div>
       }
-      footer={primaryAction}
+      footer={stickyActionBar}
     >
-      <div className="space-y-6 pb-12">
-        {/* Step indicator */}
-        <div className="bg-gray-100 rounded-lg p-3 text-sm text-center font-medium text-gray-700">
-          {sessionStage}
-        </div>
-
-        {/* PARTICIPANTS */}
-        <div>
-          <ParticipantList
-            participants={participants}
-            onlineIds={onlineIds}
-            paidIds={paidIds}
-            hostParticipantId={hostParticipantId}
-            getAvatarColor={getAvatarColor}
-          />
-        </div>
-
-        {/* SPLIT PROGRESS */}
-        <SplitProgress
-          percent={splitProgress.percent}
-          unclaimedCount={splitProgress.unclaimedCount}
-          allClaimed={splitProgress.allClaimed}
-          sessionStage={sessionStage}
-        />
-
-        {/* ADD ITEM — at top for immediate use */}
-        <div
-          className={`flex gap-2 transition-all ${
-            focusSection === "input"
-              ? "scale-[1.02]"
-              : "opacity-80"
-          }`}
-        >
-          <input
-            ref={itemInputRef}
-            placeholder="Item"
-            value={name}
-            onChange={e => setName(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                priceInputRef.current?.focus();
-              }
-            }}
-            className="border p-2 rounded flex-1"
-          />
-          <input
-            ref={priceInputRef}
-            placeholder="$"
-            value={price}
-            onChange={e => setPrice(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === "Enter") addItem();
-            }}
-            className="border p-2 rounded w-24"
-          />
-          <button
-            onClick={addItem}
-            className="bg-black text-white px-4 rounded"
-          >
-            Add
-          </button>
-        </div>
-
-        {/* Activity feed */}
-        <div className="space-y-2">
-          {activities.map(a => (
-            <div
-              key={a.id}
-              className="bg-green-50 text-green-800 px-3 py-2 rounded-lg text-sm animate-slide-in"
-            >
-              {a.message}
+      {/* Two-column on desktop: main flow left, summary rail right. Single column on mobile. */}
+      <div className="lg:grid lg:grid-cols-[1fr_320px] lg:gap-8 lg:items-start pb-12">
+        {/* LEFT: main flow — variable width, not a rigid stack */}
+        <div className="space-y-6 max-w-2xl lg:max-w-none">
+          {/* You owe / Pay now — mobile only, above add item so flow is seamless */}
+          {personalCard && (
+            <div className="lg:hidden min-w-0">
+              {personalCard}
             </div>
-          ))}
-        </div>
+          )}
 
-        <div
-          className={`transition-all ${
-            focusSection === "payment"
-              ? "scale-[1.02]"
-              : ""
-          }`}
-        >
-          {personalCard}
-        </div>
-
-        {/* ITEMS */}
-        <section>
-          <h2 className="text-lg font-semibold mb-2">Items</h2>
-          <ItemList
-            items={items}
-            claims={claims}
-            participants={participants}
-            participantId={participantId}
-            claimingItemIds={claimingItemIds}
-            focusSection={focusSection}
-            toggleClaim={toggleClaim}
-            getRemainingAmount={getRemainingAmount}
-            setEditingClaim={setEditingClaim}
-            setAmountInput={setAmountInput}
-            lastClaimedItem={lastClaimedItem}
-          />
-        </section>
-
-        {/* BILL — combined summary + tax/tip */}
-        <section>
-          <h2 className="text-lg font-semibold mb-2">Bill</h2>
-          <div className="bg-white rounded-xl shadow-sm p-4 space-y-4">
-            <BillSummaryCard
-              subtotal={billSummary.subtotal}
-              claimedTotal={billSummary.claimedTotal}
-              remaining={billSummary.remaining}
-              taxAmount={taxAmount}
-              tipAmount={tipAmount}
-              total={billSummary.total}
-              inline
+          {/* Add item — full width */}
+          <div
+            className={`flex gap-2 transition-all ${
+              focusSection === "input" ? "scale-[1.01]" : "opacity-90"
+            }`}
+          >
+            <input
+              ref={itemInputRef}
+              placeholder="Item name"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  priceInputRef.current?.focus();
+                }
+              }}
+              className="flex-1 min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white/90 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
             />
-            <TaxTipInputs
-              taxInput={taxInput}
-              tipInput={tipInput}
-              setTaxInput={setTaxInput}
-              setTipInput={setTipInput}
-              inline
+            <input
+              ref={priceInputRef}
+              placeholder="$"
+              value={price}
+              onChange={e => setPrice(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === "Enter") addItem();
+              }}
+              className="w-20 min-h-[48px] px-3 rounded-xl border border-slate-200 bg-white/90 text-center placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
             />
-          </div>
-        </section>
-
-        {/* LIVE TOTALS */}
-        <section>
-          <h2 className="text-lg font-semibold mb-2">Live Totals</h2>
-          <div className="bg-white rounded-xl shadow-sm divide-y">
-            {participants.map(p => (
-              <div
-                key={p.id}
-                className="flex justify-between items-center px-4 py-3"
+            <button
+              type="button"
+              onClick={addItem}
+              className="min-h-[48px] px-4 rounded-xl bg-slate-900 text-white font-medium active:scale-[0.98] transition-transform hover:bg-slate-800"
+            >
+              Add
+            </button>
+            {status !== "completed" && (
+              <button
+                type="button"
+                onClick={() => setShowScanModal(true)}
+                className="min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white/90 font-medium text-slate-600 active:scale-[0.98] transition-transform hover:bg-slate-50 shrink-0"
               >
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-7 h-7 rounded-full text-white text-xs flex items-center justify-center ${getAvatarColor(
-                      p.id
-                    )}`}
-                  >
-                    {p.name.charAt(0).toUpperCase()}
-                  </div>
-                  <span>{p.name}</span>
-                </div>
-                <span className="font-semibold transition-all duration-300">
-                  ${totals[p.id].toFixed(2)}
-                </span>
-              </div>
-            ))}
+                Scan receipt
+              </button>
+            )}
           </div>
-        </section>
 
-        {/* SETTLE UP */}
-        <section>
-          <SettlementPanel
-        settlements={settlements}
-        paidIds={paidIds}
-        paidCount={paidCount}
-        totalDebtors={totalDebtors}
-        isHost={isHost}
-        status={status}
-        participantId={participantId}
-        sessionId={sessionId}
-        markPaid={markPaid}
-        createVenmoLink={createVenmoLink}
-        hostVenmoUsername={host?.venmo_username}
-        copyPaymentRequest={copyPaymentRequest}
-        copyAllPaymentRequests={copyAllPaymentRequests}
-        startReview={startReview}
-      />
-        </section>
+          {/* Items — main list */}
+          <section className="lg:mr-0">
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Items</h2>
+            <ItemList
+              items={items}
+              claims={claims}
+              participants={participants}
+              participantId={participantId}
+              claimingItemIds={claimingItemIds}
+              focusSection={focusSection}
+              toggleClaim={toggleClaim}
+              claimRemaining={claimRemaining}
+              getRemainingAmount={getRemainingAmount}
+              setEditingClaim={setEditingClaim}
+              setAmountInput={setAmountInput}
+              lastClaimedItem={lastClaimedItem}
+            />
+          </section>
+        </div>
+
+        {/* RIGHT: sticky summary rail — only on desktop */}
+        <div className="hidden lg:block lg:sticky lg:top-4 space-y-6">
+          {/* You owe / Pay now — desktop: in rail so main column stays add item → items */}
+          {personalCard && (
+            <section className="min-w-0">
+              {personalCard}
+            </section>
+          )}
+          <section>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Bill</h2>
+            <div className="rounded-2xl border border-slate-200/80 bg-white/90 backdrop-blur-xl shadow-md p-4 space-y-4">
+              <BillSummaryCard
+                subtotal={billSummary.subtotal}
+                claimedTotal={billSummary.claimedTotal}
+                remaining={billSummary.remaining}
+                taxAmount={taxAmount}
+                tipAmount={tipAmount}
+                total={billSummary.total}
+                showTip={splitType === "restaurant"}
+                inline
+              />
+              <TaxTipInputs
+                taxInput={taxInput}
+                tipInput={tipInput}
+                setTaxInput={setTaxInput}
+                setTipInput={setTipInput}
+                showTip={splitType === "restaurant"}
+                inline
+              />
+            </div>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Live totals</h2>
+            <div className="rounded-2xl border border-slate-200/80 bg-white/90 backdrop-blur-xl shadow-md divide-y divide-slate-100 overflow-hidden">
+              {participants.map(p => (
+                <div
+                  key={p.id}
+                  className="flex justify-between items-center px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-7 h-7 rounded-full text-white text-xs flex items-center justify-center ${getAvatarColor(
+                        p.id
+                      )}`}
+                    >
+                      {p.name.charAt(0).toUpperCase()}
+                    </div>
+                    <span>{p.name}</span>
+                  </div>
+                  <span className="font-semibold transition-all duration-300">
+                    ${totals[p.id].toFixed(2)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <SettlementPanel
+              settlements={settlements}
+              paidIds={paidIds}
+              paidCount={paidCount}
+              totalDebtors={totalDebtors}
+              isHost={isHost}
+              status={status}
+              participantId={participantId}
+              sessionId={sessionId}
+              markPaid={markPaid}
+              createVenmoLink={createVenmoLink}
+              hostVenmoUsername={host?.venmo_username}
+              copyPaymentRequest={copyPaymentRequest}
+              copyAllPaymentRequests={copyAllPaymentRequests}
+              startReview={startReview}
+            />
+          </section>
+        </div>
+
+        {/* Mobile: bill, live totals, settlement below items (same order, full width) */}
+        <div className="lg:hidden space-y-6 mt-6">
+          <section>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Bill</h2>
+            <div className="rounded-2xl border border-white/80 bg-white/80 backdrop-blur-xl shadow-md p-4 space-y-4">
+              <BillSummaryCard
+                subtotal={billSummary.subtotal}
+                claimedTotal={billSummary.claimedTotal}
+                remaining={billSummary.remaining}
+                taxAmount={taxAmount}
+                tipAmount={tipAmount}
+                total={billSummary.total}
+                showTip={splitType === "restaurant"}
+                inline
+              />
+              <TaxTipInputs
+                taxInput={taxInput}
+                tipInput={tipInput}
+                setTaxInput={setTaxInput}
+                setTipInput={setTipInput}
+                showTip={splitType === "restaurant"}
+                inline
+              />
+            </div>
+          </section>
+
+          <section>
+            <h2 className="text-lg font-semibold text-slate-900 mb-2">Live totals</h2>
+            <div className="rounded-2xl border border-white/80 bg-white/80 backdrop-blur-xl shadow-md divide-y divide-slate-100 overflow-hidden">
+              {participants.map(p => (
+                <div
+                  key={p.id}
+                  className="flex justify-between items-center px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <div
+                      className={`w-7 h-7 rounded-full text-white text-xs flex items-center justify-center ${getAvatarColor(
+                        p.id
+                      )}`}
+                    >
+                      {p.name.charAt(0).toUpperCase()}
+                    </div>
+                    <span>{p.name}</span>
+                  </div>
+                  <span className="font-semibold transition-all duration-300">
+                    ${totals[p.id].toFixed(2)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <SettlementPanel
+              settlements={settlements}
+              paidIds={paidIds}
+              paidCount={paidCount}
+              totalDebtors={totalDebtors}
+              isHost={isHost}
+              status={status}
+              participantId={participantId}
+              sessionId={sessionId}
+              markPaid={markPaid}
+              createVenmoLink={createVenmoLink}
+              hostVenmoUsername={host?.venmo_username}
+              copyPaymentRequest={copyPaymentRequest}
+              copyAllPaymentRequests={copyAllPaymentRequests}
+              startReview={startReview}
+            />
+          </section>
+        </div>
       </div>
-
-      {/* Floating Add Item */}
-      {status !== "completed" && (
-        <button
-          type="button"
-          onClick={() => {
-            itemInputRef.current?.scrollIntoView({
-              behavior: "smooth",
-            });
-            itemInputRef.current?.focus();
-          }}
-          className="fixed bottom-6 right-6 z-40 bg-black text-white rounded-full px-4 py-3 shadow-lg"
-        >
-          + Add Item
-        </button>
-      )}
 
       {/* Review Modal */}
       {status === "reviewing" && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-[95%] max-w-md space-y-5 text-center">
-            <h2 className="text-2xl font-semibold">
-              Review Split
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: "spring", damping: 25 }}
+            className="bg-white rounded-2xl p-6 w-full max-w-md space-y-5 text-center shadow-xl border border-white/80"
+          >
+            <h2 className="text-2xl font-semibold text-slate-900">
+              Review split
             </h2>
 
-            <p className="text-gray-600">
+            <p className="text-slate-600">
               Double check everything before finalizing.
             </p>
 
-            <div className="bg-gray-50 rounded-xl p-4 text-sm space-y-2">
+            <div className="bg-slate-50 rounded-xl p-4 text-sm space-y-2 text-left">
               <div className="flex justify-between">
                 <span>Subtotal</span>
                 <span>${billSummary.subtotal.toFixed(2)}</span>
@@ -1291,10 +1471,12 @@ export default function SessionClient({
                 <span>Tax</span>
                 <span>${taxAmount.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between">
-                <span>Tip</span>
-                <span>${tipAmount.toFixed(2)}</span>
-              </div>
+              {splitType === "restaurant" && (
+                <div className="flex justify-between">
+                  <span>Tip</span>
+                  <span>${tipAmount.toFixed(2)}</span>
+                </div>
+              )}
               <div className="border-t pt-2 flex justify-between font-semibold">
                 <span>Total</span>
                 <span>${billSummary.total.toFixed(2)}</span>
@@ -1303,31 +1485,41 @@ export default function SessionClient({
 
             <div className="space-y-2">
               <button
+                type="button"
                 onClick={confirmSplit}
-                className="w-full bg-black text-white py-3 rounded-xl font-medium"
+                className="w-full bg-slate-900 text-white py-3 rounded-xl font-medium active:scale-[0.98] hover:bg-slate-800"
               >
-                Confirm Split
+                Confirm split
               </button>
               <button
+                type="button"
                 onClick={reopenSplit}
-                className="w-full text-gray-500"
+                className="w-full text-slate-500 py-2"
               >
-                Edit Split
+                Edit split
               </button>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
 
       {/* Completion Overlay UI */}
       {showCompletion && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-2xl p-6 w-[95%] max-w-md space-y-6 text-center">
-            <h2 className="text-2xl font-semibold">
-              Split Summary
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ type: "spring", damping: 25, stiffness: 300 }}
+            className="bg-white rounded-2xl p-6 w-full max-w-[400px] space-y-6 text-center shadow-xl border border-white/80"
+          >
+            <h2 className="text-2xl font-semibold text-slate-900">
+              You're all set
             </h2>
+            <p className="text-sm text-slate-500">
+              Split complete. Here's your summary.
+            </p>
 
-            <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-sm">
+            <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-sm text-left">
               <div className="flex justify-between">
                 <span>Subtotal</span>
                 <span>${billSummary.subtotal.toFixed(2)}</span>
@@ -1336,25 +1528,27 @@ export default function SessionClient({
                 <span>Tax</span>
                 <span>${taxAmount.toFixed(2)}</span>
               </div>
-              <div className="flex justify-between">
-                <span>Tip</span>
-                <span>${tipAmount.toFixed(2)}</span>
-              </div>
+              {splitType === "restaurant" && (
+                <div className="flex justify-between">
+                  <span>Tip</span>
+                  <span>${tipAmount.toFixed(2)}</span>
+                </div>
+              )}
               <div className="border-t pt-2 flex justify-between font-semibold">
                 <span>Total</span>
                 <span>${billSummary.total.toFixed(2)}</span>
               </div>
             </div>
 
-            <div className="bg-white border rounded-xl p-4 space-y-3">
-              <h3 className="text-sm font-semibold text-gray-700">
-                Your Final Breakdown
+            <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3 text-left">
+              <h3 className="text-sm font-semibold text-slate-700">
+                Your total
               </h3>
 
               {viewerBreakdown && (
                 <>
                   <div className="flex justify-between text-sm">
-                    <span>Food</span>
+                    <span>{splitType === "restaurant" ? "Food" : "Items"}</span>
                     <span>${viewerBreakdown.foodTotal.toFixed(2)}</span>
                   </div>
 
@@ -1365,7 +1559,7 @@ export default function SessionClient({
                     </div>
                   )}
 
-                  {tipAmount > 0 && (
+                  {splitType === "restaurant" && tipAmount > 0 && (
                     <div className="flex justify-between text-sm">
                       <span>Tip</span>
                       <span>${viewerBreakdown.tipShare.toFixed(2)}</span>
@@ -1380,15 +1574,32 @@ export default function SessionClient({
               )}
             </div>
 
-            <button
-              onClick={() => router.push("/")}
-              className="w-full bg-black text-white py-3 rounded-xl font-medium"
-            >
-              Start New Split
-            </button>
-          </div>
+            <div className="space-y-3">
+              <button
+                type="button"
+                onClick={() => setShowCompletion(false)}
+                className="w-full border border-slate-200 bg-white text-slate-700 py-3.5 rounded-xl font-medium min-h-[48px] active:scale-[0.98] transition-transform hover:bg-slate-50"
+              >
+                Back to split
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push("/")}
+                className="w-full bg-slate-900 text-white py-3.5 rounded-xl font-medium min-h-[48px] active:scale-[0.98] transition-transform hover:bg-slate-800"
+              >
+                {isHost ? "Start new split" : "Done"}
+              </button>
+            </div>
+          </motion.div>
         </div>
       )}
+
+      <ScanReceiptModal
+        isOpen={showScanModal}
+        onClose={() => setShowScanModal(false)}
+        onAddItems={addItemsFromScan}
+        onExtractItems={extractItemsFromFile}
+      />
 
       {editingClaim && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50">

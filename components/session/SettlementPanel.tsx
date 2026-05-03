@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { motion } from "framer-motion";
 
 type SettlementRow = {
   fromId: string;
@@ -49,78 +50,82 @@ export default function SettlementPanel({
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold">Settle Up</h2>
+      <h2 className="text-lg font-semibold text-slate-900">Settle up</h2>
 
-      <p className="text-sm text-gray-600">
-        {paidCount} of {totalDebtors} people paid
+      <p className="text-sm text-slate-600">
+        {paidCount} of {totalDebtors} {totalDebtors === 1 ? "person" : "people"} paid
       </p>
 
-      <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden mt-1">
-        <div
-          className="h-full bg-green-500 transition-all"
-          style={{
-            width: `${
-              totalDebtors ? (paidCount / totalDebtors) * 100 : 0
-            }%`,
+      <div className="w-full h-2.5 bg-slate-200/90 rounded-full overflow-hidden">
+        <motion.div
+          className="h-full bg-gradient-to-r from-teal-500 to-emerald-500 rounded-full"
+          initial={{ width: 0 }}
+          animate={{
+            width: `${totalDebtors ? (paidCount / totalDebtors) * 100 : 0}%`,
           }}
+          transition={{ type: "spring", damping: 25 }}
+          style={{ originX: 0 }}
         />
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm divide-y">
+      <div className="rounded-2xl border border-slate-200/80 bg-white/90 backdrop-blur-xl shadow-md divide-y divide-slate-100 overflow-hidden">
         {settlements.map((s, i) => {
           const viewerIsDebtor = participantId === s.fromId;
+          const isPaid = paidIds.includes(s.fromId);
 
           return (
             <div
               key={i}
-              className={`px-4 py-3 space-y-2 transition ${
-                paidIds.includes(s.fromId) ? "bg-green-50" : ""
+              className={`px-4 py-3.5 space-y-3 transition-colors ${
+                isPaid ? "bg-emerald-50/70" : "bg-white/50"
               }`}
             >
-              <div className="flex justify-between">
-                <span>
+              <div className="flex justify-between items-center">
+                <span className="text-sm text-slate-700">
                   {viewerIsDebtor
                     ? `You owe ${s.to}`
                     : `${s.from} owes ${s.to}`}
                 </span>
-                <span className="font-semibold">
+                <span className="font-semibold text-slate-900 tabular-nums">
                   ${s.amount.toFixed(2)}
                 </span>
               </div>
 
-              {!paidIds.includes(s.fromId) &&
-                (viewerIsDebtor || isHost) && (
-                  <div className="flex flex-wrap gap-2">
-                    {viewerIsDebtor && (
-                      <a
-                        href={createVenmoLink(s.amount, hostVenmoUsername)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-sm"
-                      >
-                        Pay with Venmo
-                      </a>
-                    )}
-                    <button
-                      onClick={() => markPaid(s.fromId)}
-                      className="bg-gray-900 text-white px-3 py-1.5 rounded-lg text-sm"
+              {!isPaid && (viewerIsDebtor || isHost) && (
+                <div className="flex flex-wrap gap-2">
+                  {viewerIsDebtor && (
+                    <a
+                      href={createVenmoLink(s.amount, hostVenmoUsername)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center justify-center min-h-[40px] px-4 rounded-xl bg-teal-500 text-white text-sm font-semibold hover:bg-teal-600 active:scale-[0.98] transition-all"
                     >
-                      Mark as Paid
+                      Pay with Venmo
+                    </a>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => markPaid(s.fromId)}
+                    className="inline-flex items-center justify-center min-h-[40px] px-4 rounded-xl bg-slate-900 text-white text-sm font-semibold hover:bg-slate-800 active:scale-[0.98] transition-all"
+                  >
+                    Mark as paid
+                  </button>
+                  {(viewerIsDebtor || isHost) && (
+                    <button
+                      type="button"
+                      onClick={() => copyPaymentRequest(s.fromId, s.amount)}
+                      className="inline-flex items-center justify-center min-h-[40px] px-4 rounded-xl border border-slate-200 bg-white text-slate-700 text-sm font-medium hover:bg-slate-50 active:scale-[0.98] transition-all"
+                    >
+                      Copy payment link
                     </button>
-                    {(viewerIsDebtor || isHost) && (
-                      <button
-                        onClick={() => copyPaymentRequest(s.fromId, s.amount)}
-                        className="border border-gray-300 px-3 py-1.5 rounded-lg text-sm text-gray-700"
-                      >
-                        Copy payment request
-                      </button>
-                    )}
-                  </div>
-                )}
+                  )}
+                </div>
+              )}
 
-              {paidIds.includes(s.fromId) && (
-                <span className="text-green-700 text-sm font-medium">
-                  ✓ Paid
+              {isPaid && (
+                <span className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-700">
+                  <span className="w-4 h-4 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs">✓</span>
+                  Paid
                 </span>
               )}
             </div>
@@ -132,25 +137,28 @@ export default function SettlementPanel({
         <div className="space-y-2">
           <button
             type="button"
-            onClick={() => setShowRequestPayments(prev => !prev)}
-            className="w-full py-2 text-sm text-gray-600 border rounded-lg"
+            onClick={() => setShowRequestPayments((prev) => !prev)}
+            className="w-full py-2.5 text-sm font-medium text-slate-600 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
           >
-            {showRequestPayments ? "Hide" : "Request Payments"}
+            {showRequestPayments ? "Hide" : "Request payments"}
           </button>
           {showRequestPayments && (
-            <div className="bg-gray-50 rounded-xl p-4 space-y-2 text-left">
-              <p className="text-xs text-gray-500 mb-2">
-                Copy and send to each person:
+            <div className="rounded-2xl border border-slate-200/80 bg-slate-50/80 p-4 space-y-3">
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">
+                Copy and send to each person
               </p>
               {settlements.map((s, i) => (
-                <div key={i} className="flex justify-between items-center gap-2">
-                  <span className="text-sm">
-                    {s.from} → ${s.amount.toFixed(2)}
+                <div
+                  key={i}
+                  className="flex justify-between items-center gap-3 py-2"
+                >
+                  <span className="text-sm text-slate-700">
+                    {s.from} → <span className="font-semibold tabular-nums">${s.amount.toFixed(2)}</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => copyPaymentRequest(s.fromId, s.amount)}
-                    className="text-xs text-blue-600 underline"
+                    className="text-sm font-medium text-teal-600 hover:text-teal-700 hover:underline"
                   >
                     Copy
                   </button>
@@ -159,9 +167,9 @@ export default function SettlementPanel({
               <button
                 type="button"
                 onClick={copyAllPaymentRequests}
-                className="w-full mt-2 py-2 text-sm bg-gray-200 rounded-lg"
+                className="w-full py-2.5 text-sm font-semibold rounded-xl bg-slate-200 text-slate-700 hover:bg-slate-300 transition-colors"
               >
-                Copy all payment requests
+                Copy all payment links
               </button>
             </div>
           )}
@@ -170,15 +178,16 @@ export default function SettlementPanel({
 
       {isHost && status === "active" && (
         <button
+          type="button"
           onClick={startReview}
           disabled={paidCount !== totalDebtors}
-          className={`w-full py-3 rounded-xl font-medium ${
+          className={`w-full min-h-[48px] py-3 rounded-xl font-semibold transition-all ${
             paidCount === totalDebtors
-              ? "bg-black text-white"
-              : "bg-gray-300 text-gray-600"
+              ? "bg-slate-900 text-white hover:bg-slate-800 active:scale-[0.98]"
+              : "bg-slate-200 text-slate-500 cursor-not-allowed"
           }`}
         >
-          Review Split
+          Review split
         </button>
       )}
     </div>

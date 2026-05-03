@@ -1,5 +1,7 @@
 "use client";
 
+import { motion } from "framer-motion";
+
 type Props = {
   percent: number;
   unclaimedCount: number;
@@ -14,18 +16,21 @@ export default function SplitProgress({
   sessionStage,
 }: Props) {
   return (
-    <div className="rounded-2xl border border-white/70 bg-white/85 p-4 shadow-sm backdrop-blur space-y-3">
+    <div className="w-full min-w-0 rounded-2xl border border-white/80 bg-white/80 backdrop-blur-xl p-4 shadow-md space-y-3">
       <div className="flex items-center justify-between text-sm">
-        <span className="font-semibold text-slate-900">Split Progress</span>
-        <span className="rounded-full bg-slate-100 px-2.5 py-1 font-medium text-slate-700">
+        <span className="font-semibold text-slate-800">Split progress</span>
+        <span className="rounded-full bg-teal-100 text-teal-700 px-2.5 py-1 font-medium">
           {percent}%
         </span>
       </div>
 
-      <div className="w-full h-2.5 bg-slate-200/80 rounded-full overflow-hidden">
-        <div
-          className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400 transition-all duration-500"
-          style={{ width: `${percent}%` }}
+      <div className="w-full h-3 bg-slate-200/90 rounded-full overflow-hidden">
+        <motion.div
+          className="h-full rounded-full bg-gradient-to-r from-teal-500 to-emerald-500"
+          initial={{ width: 0 }}
+          animate={{ width: `${percent}%` }}
+          transition={{ type: "spring", damping: 25, stiffness: 200 }}
+          style={{ originX: 0 }}
         />
       </div>
 
@@ -45,12 +50,6 @@ export default function SplitProgress({
         <p className="text-sm text-gray-600">
           Waiting for everyone to claim their items
         </p>
-      )}
-
-      {sessionStage === "Complete" && (
-        <div className="bg-green-50 text-green-800 text-center py-3 rounded-xl font-medium animate-pulse ring-2 ring-green-300">
-          🎉 Everyone is settled up!
-        </div>
       )}
     </div>
   );

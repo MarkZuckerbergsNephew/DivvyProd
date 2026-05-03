@@ -1,8 +1,72 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #fafafa;
+  --foreground: #0f172a;
+  /* Divvy — modern slate + teal (GitHub/Linear inspired) */
+  --divvy-bg-base: #f8fafc;
+  --divvy-bg-elevated: #ffffff;
+  --divvy-border: #e2e8f0;
+  --divvy-border-subtle: #f1f5f9;
+  --divvy-primary: #0f172a;
+  --divvy-primary-hover: #1e293b;
+  --divvy-accent: #0d9488;
+  --divvy-accent-hover: #0f766e;
+  --divvy-card: rgba(255, 255, 255, 0.9);
+  --divvy-card-border: rgba(226, 232, 240, 0.6);
+}
+
+/* Base canvas — soft tint (not plain white) */
+.bg-app-canvas {
+  background-color: #f0f9ff; /* very light teal tint */
+}
+.bg-app-canvas-alt {
+  background-color: #f8fafc;
+}
+
+/* Dot grid layer */
+.bg-app-dots {
+  background-image:
+    radial-gradient(circle at 1px 1px, rgb(148 163 184 / 0.25) 1px, transparent 0);
+  background-size: 28px 28px;
+}
+
+/* Soft mesh glows */
+.bg-app-glow {
+  background:
+    radial-gradient(ellipse 100% 70% at 50% -15%, rgb(94 234 212 / 0.06), transparent 50%),
+    radial-gradient(ellipse 80% 50% at 100% 50%, rgb(148 163 184 / 0.06), transparent 50%),
+    radial-gradient(ellipse 60% 40% at 0% 80%, rgb(148 163 184 / 0.05), transparent 50%);
+  pointer-events: none;
+}
+
+/* Slow gradient drift — subtle movement */
+@keyframes gradient-drift {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+.animate-gradient-drift {
+  animation: gradient-drift 12s ease-in-out infinite;
+}
+
+/* Idle card shimmer — very subtle */
+@keyframes idle-shimmer {
+  0%, 100% { box-shadow: 0 1px 3px rgb(0 0 0 / 0.04); }
+  50% { box-shadow: 0 4px 12px rgb(0 0 0 / 0.06); }
+}
+.animate-idle-shimmer {
+  animation: idle-shimmer 4s ease-in-out infinite;
+}
+
+/* Floating blob (used by JS component) */
+@keyframes float-slow {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25% { transform: translate(3%, -4%) scale(1.05); }
+  50% { transform: translate(-2%, 2%) scale(0.95); }
+  75% { transform: translate(-3%, -2%) scale(1.02); }
+}
+.animate-float-slow {
+  animation: float-slow 22s ease-in-out infinite;
 }
 
 @theme inline {
@@ -22,7 +86,14 @@
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, sans-serif;
+}
+
+/* Mobile-first: safe area for notched devices */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .pb-safe {
+    padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  }
 }
 
 /* force Tailwind to include claim styles */
