@@ -5,6 +5,5 @@ export { default as ParticipantList } from "./ParticipantList";
 export { default as ItemList } from "./ItemList";
 export { default as SettlementPanel } from "./SettlementPanel";
 export { default as SessionShell } from "./SessionShell";
-export { default as JoinCodeBanner } from "./JoinCodeBanner";
 export { default as StageHeader } from "./StageHeader";
 export { default as ScanReceiptModal } from "./ScanReceiptModal";

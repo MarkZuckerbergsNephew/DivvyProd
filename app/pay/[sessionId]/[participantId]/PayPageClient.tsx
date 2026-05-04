@@ -4,11 +4,13 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { calculateTotals } from "@/lib/billMath";
+import { motion, AnimatePresence } from "framer-motion";
 
 type Participant = {
   id: string;
   name: string;
   venmo_username?: string | null;
+  cashapp_username?: string | null;
 };
 
 function createVenmoLink(amount: number, venmoUsername?: string | null) {
@@ -29,8 +31,10 @@ export default function PayPageClient({
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [sessionTitle, setSessionTitle] = useState("Split");
   const [hostName, setHostName] = useState("");
   const [hostVenmo, setHostVenmo] = useState<string | null>(null);
+  const [hostCashApp, setHostCashApp] = useState<string | null>(null);
   const [amount, setAmount] = useState<number | null>(null);
   const [marking, setMarking] = useState(false);
   const [marked, setMarked] = useState(false);
@@ -39,13 +43,13 @@ export default function PayPageClient({
     async function load() {
       const { data: session } = await supabase
         .from("sessions")
-        .select("host_participant_id, tax_amount, tip_amount")
+        .select("host_participant_id, tax_amount, tip_amount, title")
         .eq("id", sessionId)
         .single();
 
       const { data: participants } = await supabase
         .from("participants")
-        .select("id, name, venmo_username")
+        .select("id, name, venmo_username, cashapp_username")
         .eq("session_id", sessionId);
 
       const { data: items } = await supabase
@@ -78,6 +82,8 @@ export default function PayPageClient({
         return;
       }
 
+      if (session.title) setSessionTitle(session.title);
+
       const host = (participants as Participant[]).find(
         (p) => p.id === session.host_participant_id
       );
@@ -106,6 +112,7 @@ export default function PayPageClient({
 
       setHostName(host.name);
       setHostVenmo(host.venmo_username ?? null);
+      setHostCashApp(host.cashapp_username ?? null);
       setAmount(owed);
       setLoading(false);
     }
@@ -126,18 +133,19 @@ export default function PayPageClient({
   if (loading) {
     return (
       <main className="min-h-screen flex items-center justify-center px-6">
-        <p className="text-gray-500">Loading…</p>
+        <div className="w-8 h-8 rounded-full border-2 border-teal-500 border-t-transparent animate-spin" />
       </main>
     );
   }
 
   if (error || amount == null) {
     return (
-      <main className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
-        <p className="text-red-500 mb-4">{error || "Something went wrong."}</p>
+      <main className="min-h-screen flex flex-col items-center justify-center px-6 text-center space-y-4">
+        <div className="text-4xl">🤔</div>
+        <p className="text-slate-700 font-medium">{error || "Something went wrong."}</p>
         <button
           onClick={() => router.push("/")}
-          className="text-gray-600 underline"
+          className="text-sm text-[var(--text-muted)] underline underline-offset-2"
         >
           Back to home
         </button>
@@ -146,42 +154,102 @@ export default function PayPageClient({
   }
 
   return (
-    <main className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
-      <div className="w-full max-w-sm space-y-6">
-        <h1 className="text-2xl font-semibold">
-          You owe {hostName} ${amount.toFixed(2)}
-        </h1>
-
-        <div className="flex flex-col gap-3">
-          <a
-            href={createVenmoLink(amount, hostVenmo)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="w-full bg-green-600 text-white py-3 rounded-xl font-medium text-center"
-          >
-            Pay with Venmo
-          </a>
-
-          {!marked ? (
-            <button
-              onClick={markPaid}
-              disabled={marking}
-              className="w-full bg-gray-900 text-white py-3 rounded-xl font-medium disabled:opacity-50"
+    <main className="min-h-screen flex items-center justify-center px-4 py-8">
+      <motion.div
+        className="w-full max-w-sm"
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
+      >
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-[var(--shadow-elevated)] overflow-hidden">
+          {/* Amount hero */}
+          <div className="px-6 pt-8 pb-6 text-center border-b border-slate-100 bg-slate-50/60">
+            <p className="text-sm font-medium text-[var(--text-muted)] mb-2">
+              You owe {hostName}
+            </p>
+            <motion.p
+              className="text-5xl font-bold text-slate-900 tabular-nums tracking-tight"
+              initial={{ scale: 0.85, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              transition={{ delay: 0.1, type: "spring", stiffness: 300, damping: 24 }}
             >
-              {marking ? "…" : "Mark as Paid"}
-            </button>
-          ) : (
-            <p className="text-green-600 font-medium">✓ Paid</p>
-          )}
-        </div>
+              ${amount.toFixed(2)}
+            </motion.p>
+            <p className="text-xs text-[var(--text-hint)] mt-2">{sessionTitle}</p>
+          </div>
 
-        <button
-          onClick={() => router.push(`/session/${sessionId}?participant=${participantId}`)}
-          className="text-gray-500 text-sm"
-        >
-          Open full session
-        </button>
-      </div>
+          {/* Actions */}
+          <div className="p-6 space-y-3">
+            <AnimatePresence mode="wait">
+              {marked ? (
+                <motion.div
+                  key="paid"
+                  initial={{ opacity: 0, scale: 0.92 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ type: "spring", stiffness: 350, damping: 26 }}
+                  className="w-full min-h-[52px] rounded-xl bg-[var(--success-light)] border border-emerald-200 flex items-center justify-center gap-2 text-emerald-700 font-semibold"
+                >
+                  <span className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs flex-shrink-0">✓</span>
+                  Marked as paid
+                </motion.div>
+              ) : (
+                <motion.div key="actions" className="space-y-3">
+                  {/* Venmo */}
+                  {hostVenmo?.trim() ? (
+                    <a
+                      href={createVenmoLink(amount, hostVenmo)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex w-full min-h-[52px] items-center justify-center gap-2 rounded-xl bg-[var(--accent)] text-white font-semibold text-base hover:bg-[var(--accent-dark)] active:scale-[0.98] transition-all shadow-[0_2px_8px_rgba(13,148,136,0.25)]"
+                    >
+                      Pay ${amount.toFixed(2)} with Venmo
+                    </a>
+                  ) : (
+                    <div className="w-full min-h-[52px] rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 text-sm font-medium">
+                      Host hasn&apos;t added Venmo yet
+                    </div>
+                  )}
+
+                  {/* CashApp */}
+                  {hostCashApp?.trim() && (
+                    <a
+                      href={`https://cash.app/$${encodeURIComponent(hostCashApp.trim())}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex w-full min-h-[48px] items-center justify-center gap-2 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 active:scale-[0.98] transition-all"
+                    >
+                      Pay with CashApp
+                    </a>
+                  )}
+
+                  {/* Mark as paid */}
+                  <button
+                    onClick={markPaid}
+                    disabled={marking}
+                    className="w-full min-h-[48px] rounded-xl border border-slate-200 bg-white text-slate-700 font-medium hover:bg-slate-50 active:scale-[0.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {marking ? (
+                      <>
+                        <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-slate-600 animate-spin" />
+                        Marking…
+                      </>
+                    ) : (
+                      "Mark as paid"
+                    )}
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <button
+              onClick={() => router.push(`/session/${sessionId}?participant=${participantId}`)}
+              className="w-full text-sm text-[var(--text-muted)] py-2 hover:text-slate-700 transition-colors"
+            >
+              Open full session
+            </button>
+          </div>
+        </div>
+      </motion.div>
     </main>
   );
 }

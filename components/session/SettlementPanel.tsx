@@ -23,6 +23,9 @@ type Props = {
   markPaid: (fromId: string) => void;
   createVenmoLink: (amount: number, venmoUsername?: string | null) => string;
   hostVenmoUsername?: string | null;
+  hostCashAppUsername?: string | null;
+  isCurrentUserHost?: boolean;
+  onOpenPaymentEdit?: () => void;
   copyPaymentRequest: (fromId: string, amount: number) => void;
   copyAllPaymentRequests: () => void;
   startReview: () => void;
@@ -40,6 +43,9 @@ export default function SettlementPanel({
   markPaid,
   createVenmoLink,
   hostVenmoUsername,
+  hostCashAppUsername,
+  isCurrentUserHost,
+  onOpenPaymentEdit,
   copyPaymentRequest,
   copyAllPaymentRequests,
   startReview,
@@ -50,7 +56,41 @@ export default function SettlementPanel({
 
   return (
     <div className="space-y-4">
-      <h2 className="text-lg font-semibold text-slate-900">Settle up</h2>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold text-slate-900">Settle up</h2>
+        {isCurrentUserHost && hostVenmoUsername?.trim() && (
+          <button
+            type="button"
+            onClick={onOpenPaymentEdit}
+            className="text-sm font-medium text-teal-600 hover:text-teal-700 hover:underline shrink-0"
+          >
+            Edit payment info
+          </button>
+        )}
+      </div>
+
+      {isCurrentUserHost && !hostVenmoUsername?.trim() && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <span className="text-lg leading-none mt-0.5">⚠️</span>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-amber-900">
+                Add your Venmo so people can pay you
+              </p>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Without it, participants can&apos;t pay you directly from this page.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenPaymentEdit}
+            className="w-full min-h-[44px] bg-amber-500 text-white rounded-xl text-sm font-semibold hover:bg-amber-600 active:scale-[0.98] transition-all"
+          >
+            Set up payment info →
+          </button>
+        </div>
+      )}
 
       <p className="text-sm text-slate-600">
         {paidCount} of {totalDebtors} {totalDebtors === 1 ? "person" : "people"} paid
@@ -94,13 +134,33 @@ export default function SettlementPanel({
               {!isPaid && (viewerIsDebtor || isHost) && (
                 <div className="flex flex-wrap gap-2">
                   {viewerIsDebtor && (
+                    hostVenmoUsername?.trim() ? (
+                      <a
+                        href={createVenmoLink(s.amount, hostVenmoUsername)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center min-h-[40px] px-4 rounded-xl bg-teal-500 text-white text-sm font-semibold hover:bg-teal-600 active:scale-[0.98] transition-all"
+                      >
+                        Pay with Venmo
+                      </a>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        className="inline-flex items-center justify-center min-h-[40px] px-4 rounded-xl bg-slate-100 text-slate-400 text-sm font-medium cursor-not-allowed"
+                      >
+                        Host hasn&apos;t added Venmo yet
+                      </button>
+                    )
+                  )}
+                  {viewerIsDebtor && hostCashAppUsername?.trim() && (
                     <a
-                      href={createVenmoLink(s.amount, hostVenmoUsername)}
+                      href={`https://cash.app/$${encodeURIComponent(hostCashAppUsername.trim())}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center justify-center min-h-[40px] px-4 rounded-xl bg-teal-500 text-white text-sm font-semibold hover:bg-teal-600 active:scale-[0.98] transition-all"
+                      className="inline-flex items-center justify-center min-h-[40px] px-4 rounded-xl bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 active:scale-[0.98] transition-all"
                     >
-                      Pay with Venmo
+                      Pay with CashApp
                     </a>
                   )}
                   <button

@@ -4,9 +4,10 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { calculateTotals } from "@/lib/billMath";
-import { generatePaymentLink } from "@/lib/paymentLink";
 import { useSessionRealtime } from "@/hooks/useSessionRealtime";
+import { useToast } from "@/hooks/useToast";
 import { motion } from "framer-motion";
+import ShareSheet from "@/components/ShareSheet";
 import {
   SessionShell,
   BillSummaryCard,
@@ -15,7 +16,6 @@ import {
   ParticipantList,
   ItemList,
   SettlementPanel,
-  JoinCodeBanner,
   ScanReceiptModal,
 } from "@/components/session";
 
@@ -38,6 +38,7 @@ type Participant = {
   id: string;
   name: string;
   venmo_username?: string | null;
+  cashapp_username?: string | null;
 };
 
 type SettlementRow = {
@@ -87,6 +88,7 @@ export default function SessionClient({
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const toast = useToast();
 
   /* ================= STATE ================= */
   
@@ -99,6 +101,8 @@ export default function SessionClient({
   const [status, setStatus] = useState<string>("active");
   const [splitType, setSplitType] =
     useState<"restaurant" | "general" | null>(null);
+  const [splitMode, setSplitMode] =
+    useState<"quick" | "running_tab">("quick");
   // restaurant adjustments (USER INPUT STRINGS)
   const [taxInput, setTaxInput] = useState("");
   const [tipInput, setTipInput] = useState("");
@@ -139,6 +143,11 @@ export default function SessionClient({
   const [finishing, setFinishing] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
   const [showScanModal, setShowScanModal] = useState(false);
+  const [showShareSheet, setShowShareSheet] = useState(false);
+
+  const [showPaymentEditSheet, setShowPaymentEditSheet] = useState(false);
+  const [editVenmoInput, setEditVenmoInput] = useState("");
+  const [editCashAppInput, setEditCashAppInput] = useState("");
 
   /* ================= INVITE ================= */
 
@@ -198,7 +207,7 @@ export default function SessionClient({
     const { data } = await supabase
       .from("sessions")
       .select(
-        "title, host_participant_id, split_type, status, tax_amount, tip_amount, join_code"
+        "title, host_participant_id, split_type, split_mode, status, tax_amount, tip_amount, join_code"
       )
       .eq("id", sessionId)
       .single();
@@ -209,6 +218,7 @@ export default function SessionClient({
     if (data.title) setSessionTitle(data.title);
     setStatus((data as { status?: string }).status ?? "active");
     setSplitType((data as { split_type?: "restaurant" | "general" }).split_type ?? null);
+    setSplitMode((data as { split_mode?: "quick" | "running_tab" }).split_mode ?? "quick");
     setJoinCode((data as { join_code?: string | null }).join_code ?? null);
     const tax = (data as { tax_amount?: number }).tax_amount;
     const tip = (data as { tip_amount?: number }).tip_amount;
@@ -228,7 +238,7 @@ export default function SessionClient({
   async function fetchParticipants() {
     const { data } = await supabase
       .from("participants")
-      .select("id, name, venmo_username")
+      .select("id, name, venmo_username, cashapp_username")
       .eq("session_id", sessionId);
 
     setParticipants(data ?? []);
@@ -359,6 +369,9 @@ export default function SessionClient({
   }
 
   async function normalizeItemWeights(itemId: string) {
+    const item = items.find(i => i.id === itemId);
+    if (!item) return;
+
     const { data: claimers } = await supabase
       .from("claims")
       .select("id")
@@ -366,7 +379,7 @@ export default function SessionClient({
 
     if (!claimers || claimers.length === 0) return;
 
-    const even = 100 / claimers.length;
+    const even = Math.round(((item.price ?? 0) / claimers.length) * 100) / 100;
 
     await Promise.all(
       claimers.map(c =>
@@ -401,9 +414,8 @@ export default function SessionClient({
           .eq("id", existing.id);
 
         if (error) {
-          console.error(error);
           setClaims(prev => [...prev, existing]);
-          alert("Something went wrong. Please try again.");
+          toast.error("Couldn't remove claim. Please try again.");
         }
       } else {
         const tempId = crypto.randomUUID();
@@ -429,9 +441,8 @@ export default function SessionClient({
           .single();
 
         if (error) {
-          console.error(error);
           setClaims(prev => prev.filter(c => c.id !== tempId));
-          alert("Something went wrong. Please try again.");
+          toast.error("Couldn't add claim. Please try again.");
         }
 
         if (data) {
@@ -463,8 +474,7 @@ export default function SessionClient({
     });
 
     if (error) {
-      console.error(error);
-      alert("Something went wrong. Please try again.");
+      toast.error("Couldn't add item. Please try again.");
       return;
     }
     fetchItems();
@@ -510,8 +520,7 @@ export default function SessionClient({
       .eq("id", sessionId);
 
     if (error) {
-      console.error(error);
-      alert("Something went wrong. Please try again.");
+      toast.error("Couldn't update title. Please try again.");
       return;
     }
     setSessionTitle(titleInput.trim());
@@ -594,7 +603,7 @@ export default function SessionClient({
           .eq("id", existing.id);
 
         if (error) {
-          console.error(error);
+          toast.error("Couldn't update claim. Please try again.");
           return;
         }
         setClaims(prev =>
@@ -614,7 +623,7 @@ export default function SessionClient({
           .single();
 
         if (error) {
-          console.error(error);
+          toast.error("Couldn't add claim. Please try again.");
           return;
         }
         if (data) {
@@ -639,7 +648,7 @@ export default function SessionClient({
     const entered = Number(amountInput || 0);
 
     if (isNaN(entered) || entered < 0) {
-      alert("Enter a valid amount.");
+      toast.error("Enter a valid amount.");
       return;
     }
 
@@ -661,9 +670,7 @@ export default function SessionClient({
     const maxAllowed = (item.price ?? 0) - usedByOthers;
 
     if (entered > maxAllowed) {
-      alert(
-        `Only $${maxAllowed.toFixed(2)} remaining for this item.`
-      );
+      toast.error(`Only $${maxAllowed.toFixed(2)} remaining for this item.`);
       return;
     }
 
@@ -673,8 +680,7 @@ export default function SessionClient({
       .eq("id", claim.id);
 
     if (error) {
-      console.error(error);
-      alert("Something went wrong. Please try again.");
+      toast.error("Couldn't save amount. Please try again.");
       return;
     }
 
@@ -700,8 +706,7 @@ export default function SessionClient({
       );
 
     if (error) {
-      console.error("Payment failed:", error);
-      alert("Something went wrong. Please try again.");
+      toast.error("Couldn't record payment. Please try again.");
       return;
     }
 
@@ -832,10 +837,126 @@ export default function SessionClient({
 
   const host = participants.find(p => p.id === hostParticipantId);
 
+  function generatePaymentLink(sId: string, participantId: string): string {
+    if (typeof window === "undefined") return "";
+    return `${window.location.origin}/pay/${sId}/${participantId}`;
+  }
+
   function copyPaymentRequest(fromId: string, amount: number) {
     const link = generatePaymentLink(sessionId, fromId);
     const text = `You owe $${amount.toFixed(2)} for our split.\n\nPay here:\n${link}`;
     void navigator.clipboard.writeText(text);
+  }
+
+  async function exportPDF() {
+    const { jsPDF } = await import("jspdf");
+    const { default: autoTable } = await import("jspdf-autotable");
+
+    const doc = new jsPDF();
+    const dateStr = new Date().toLocaleDateString("en-US", {
+      year: "numeric", month: "long", day: "numeric",
+    });
+    const fileDate = new Date().toISOString().split("T")[0];
+    const safeTitle = sessionTitle.replace(/[^a-z0-9]/gi, "-").toLowerCase();
+
+    // ── Header ──
+    doc.setFontSize(22);
+    doc.setFont("helvetica", "bold");
+    doc.text("Divvy", 14, 18);
+    doc.setFontSize(13);
+    doc.setFont("helvetica", "normal");
+    doc.text(sessionTitle, 14, 27);
+    doc.setFontSize(9);
+    doc.setTextColor(120, 120, 120);
+    doc.text(dateStr, 14, 34);
+    doc.setTextColor(0, 0, 0);
+
+    // ── Section 1: Items ──
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text("Items", 14, 44);
+
+    const itemRows = items.map((item) => {
+      const itemClaims = claims.filter((c) => c.item_id === item.id);
+      const claimerStr = itemClaims.length > 0
+        ? itemClaims
+            .map((c) => {
+              const p = participants.find((p) => p.id === c.participant_id);
+              return `${p?.name ?? "?"}: $${(c.amount ?? 0).toFixed(2)}`;
+            })
+            .join(", ")
+        : "Unclaimed";
+      return [item.name, `$${Number(item.price ?? 0).toFixed(2)}`, claimerStr];
+    });
+
+    autoTable(doc, {
+      startY: 48,
+      head: [["Item", "Price", "Claims"]],
+      body: itemRows,
+      styles: { fontSize: 8.5 },
+      headStyles: { fillColor: [13, 148, 136] },
+      columnStyles: { 0: { cellWidth: 60 }, 1: { cellWidth: 25 }, 2: { cellWidth: "auto" } },
+    });
+
+    // ── Section 2: Per-person summary ──
+    const subtotal = items.reduce((s, i) => s + Number(i.price ?? 0), 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let y: number = (doc as any).lastAutoTable.finalY + 10;
+
+    doc.setFontSize(11);
+    doc.setFont("helvetica", "bold");
+    doc.text("Per-person summary", 14, y);
+
+    const personRows = participants.map((p) => {
+      const foodTotal = claims
+        .filter((c) => c.participant_id === p.id)
+        .reduce((s, c) => s + (c.amount ?? 0), 0);
+      const ratio = subtotal > 0 ? foodTotal / subtotal : 0;
+      const taxShare = ratio * taxAmount;
+      const tipShare = ratio * tipAmount;
+      const total = foodTotal + taxShare + tipShare;
+      return [
+        p.name,
+        `$${foodTotal.toFixed(2)}`,
+        `$${taxShare.toFixed(2)}`,
+        splitType === "restaurant" ? `$${tipShare.toFixed(2)}` : "—",
+        `$${total.toFixed(2)}`,
+      ];
+    });
+
+    autoTable(doc, {
+      startY: y + 4,
+      head: [["Name", "Food", "Tax", "Tip", "Total"]],
+      body: personRows,
+      styles: { fontSize: 8.5 },
+      headStyles: { fillColor: [13, 148, 136] },
+    });
+
+    // ── Section 3: Settlement ──
+    if (settlements.length > 0) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      y = (doc as any).lastAutoTable.finalY + 10;
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.text("Settlement", 14, y);
+
+      autoTable(doc, {
+        startY: y + 4,
+        head: [["Pays", "To", "Amount"]],
+        body: settlements.map((s) => [s.from, s.to, `$${s.amount.toFixed(2)}`]),
+        styles: { fontSize: 8.5 },
+        headStyles: { fillColor: [13, 148, 136] },
+      });
+    }
+
+    // ── Footer ──
+    const pageH = doc.internal.pageSize.height;
+    doc.setFontSize(8);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(160, 160, 160);
+    doc.text("Generated by Divvy", 14, pageH - 10);
+
+    doc.save(`divvy-${safeTitle}-${fileDate}.pdf`);
   }
 
   function copyAllPaymentRequests() {
@@ -881,9 +1002,8 @@ export default function SessionClient({
       .eq("id", sessionId);
 
     if (error) {
-      console.error("startReview failed:", error);
       setStatus("active");
-      alert("Could not start review. Try again or refresh.");
+      toast.error("Couldn't start review. Please try again.");
     }
   }
 
@@ -894,8 +1014,7 @@ export default function SessionClient({
       .eq("id", sessionId);
 
     if (error) {
-      console.error(error);
-      alert("Something went wrong. Please try again.");
+      toast.error("Couldn't confirm split. Please try again.");
       return;
     }
     setStatus("completed");
@@ -909,11 +1028,58 @@ export default function SessionClient({
       .eq("id", sessionId);
 
     if (error) {
-      console.error(error);
-      alert("Something went wrong. Please try again.");
+      toast.error("Couldn't reopen split. Please try again.");
       return;
     }
     setStatus("active");
+  }
+
+  function openPaymentEditSheet() {
+    setEditVenmoInput(host?.venmo_username ?? "");
+    setEditCashAppInput(host?.cashapp_username ?? "");
+    setShowPaymentEditSheet(true);
+  }
+
+  async function savePaymentInfo() {
+    if (!hostParticipantId) return;
+
+    const { error } = await supabase
+      .from("participants")
+      .update({
+        venmo_username: editVenmoInput.trim() || null,
+        cashapp_username: editCashAppInput.trim() || null,
+      })
+      .eq("id", hostParticipantId);
+
+    if (error) {
+      toast.error("Couldn't save payment info. Please try again.");
+      return;
+    }
+
+    await fetchParticipants();
+    setShowPaymentEditSheet(false);
+  }
+
+  async function saveItem(itemId: string, name: string, price: number) {
+    const { error } = await supabase
+      .from("items")
+      .update({ name, price })
+      .eq("id", itemId);
+
+    if (error) {
+      toast.error("Couldn't update item. Please try again.");
+    }
+  }
+
+  async function deleteItem(itemId: string) {
+    const { error } = await supabase
+      .from("items")
+      .delete()
+      .eq("id", itemId);
+
+    if (error) {
+      toast.error("Couldn't delete item. Please try again.");
+    }
   }
 
   /* ================= PAYMENT PROGRESS ================= */
@@ -1027,14 +1193,24 @@ export default function SessionClient({
           <p className="text-2xl font-bold text-slate-900 tabular-nums">
             ${viewerSettlement!.amount.toFixed(2)}
           </p>
-          <a
-            href={createVenmoLink(viewerSettlement!.amount, host?.venmo_username)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block w-full text-center min-h-[48px] flex items-center justify-center rounded-xl bg-teal-500 text-white font-semibold hover:bg-teal-600 active:scale-[0.98] transition-all"
-          >
-            Pay now
-          </a>
+          {host?.venmo_username?.trim() ? (
+            <a
+              href={createVenmoLink(viewerSettlement!.amount, host.venmo_username)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block w-full text-center min-h-[48px] flex items-center justify-center rounded-xl bg-teal-500 text-white font-semibold hover:bg-teal-600 active:scale-[0.98] transition-all"
+            >
+              Pay now with Venmo
+            </a>
+          ) : (
+            <button
+              type="button"
+              disabled
+              className="block w-full text-center min-h-[48px] flex items-center justify-center rounded-xl bg-slate-100 text-slate-400 font-medium cursor-not-allowed"
+            >
+              Host hasn&apos;t added Venmo yet
+            </button>
+          )}
         </div>
       );
     }
@@ -1048,91 +1224,143 @@ export default function SessionClient({
   };
 
   const stickyActionBar = (() => {
+    const w = "w-full max-w-[480px] md:max-w-4xl lg:max-w-6xl mx-auto";
+
+    // ── Completed ──
     if (status === "completed") {
       return (
-        <button
-          type="button"
-          onClick={() => setShowCompletion(true)}
-          className="w-full min-h-[48px] bg-slate-900 text-white rounded-xl font-semibold active:scale-[0.98] transition-transform hover:bg-slate-800"
-        >
-          View summary
-        </button>
-      );
-    }
-
-    const addItemBtn = (
-      <button
-        key="add"
-        type="button"
-        onClick={scrollToAddItem}
-        className="min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white/90 font-medium text-slate-800 active:scale-[0.98] transition-transform shrink-0"
-      >
-        + Item
-      </button>
-    );
-
-    const inviteBtn = joinCode ? (
-      <button
-        key="invite"
-        type="button"
-        onClick={shareInvite}
-        className="min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white/90 font-medium text-slate-600 active:scale-[0.98] transition-transform shrink-0"
-      >
-        Invite
-      </button>
-    ) : null;
-
-    if (sessionStage === "Settling payments" && viewerOwesMoney) {
-      return (
-        <div className="flex gap-2 w-full max-w-[480px] md:max-w-4xl lg:max-w-6xl mx-auto">
-          {addItemBtn}
-          {inviteBtn}
-          <a
-            href={createVenmoLink(viewerSettlement!.amount, host?.venmo_username)}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex-1 min-h-[48px] flex items-center justify-center rounded-xl bg-emerald-600 text-white font-medium active:scale-[0.98] transition-transform"
+        <div className={`flex items-center justify-between gap-3 ${w}`}>
+          <div className="flex items-center gap-2 text-emerald-600 font-semibold text-sm">
+            <span className="w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs flex-shrink-0">✓</span>
+            All done!
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowCompletion(true)}
+            className="min-h-[44px] px-5 rounded-xl bg-slate-900 text-white font-semibold text-sm hover:bg-slate-800 active:scale-[0.98] transition-all"
           >
-            Pay ${viewerSettlement!.amount.toFixed(2)}
-          </a>
+            View summary
+          </button>
         </div>
       );
     }
 
-    if (sessionStage === "Complete" && isHost && status === "active") {
+    // ── Reviewing ──
+    if (status === "reviewing") {
+      if (isHost) {
+        return (
+          <div className={`flex items-center justify-center min-h-[48px] rounded-xl bg-slate-100 text-slate-500 font-medium text-sm ${w}`}>
+            Reviewing split…
+          </div>
+        );
+      }
+      if (viewerSettlement) {
+        return (
+          <div className={`flex gap-2 ${w}`}>
+            <div className="flex-1 flex items-center justify-center rounded-xl bg-slate-100 text-slate-700 font-medium text-sm px-3 min-h-[48px]">
+              You owe <span className="font-bold ml-1">${viewerSettlement.amount.toFixed(2)}</span>
+            </div>
+            {host?.venmo_username?.trim() ? (
+              <a
+                href={createVenmoLink(viewerSettlement.amount, host.venmo_username)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="min-h-[48px] px-5 flex items-center justify-center rounded-xl bg-[var(--accent)] text-white font-semibold text-sm hover:bg-[var(--accent-dark)] active:scale-[0.98] transition-all"
+              >
+                Pay now
+              </a>
+            ) : null}
+          </div>
+        );
+      }
       return (
-        <button
-          type="button"
-          onClick={startReview}
-          className="w-full min-h-[48px] bg-slate-900 text-white rounded-xl font-medium active:scale-[0.98] transition-transform hover:bg-slate-800"
-        >
-          Review Split
-        </button>
+        <div className={`flex items-center justify-center min-h-[48px] rounded-xl bg-slate-100 text-slate-500 font-medium text-sm ${w}`}>
+          Waiting for host to confirm…
+        </div>
       );
     }
 
-    return (
-      <div className="flex gap-2 w-full max-w-[480px] md:max-w-4xl lg:max-w-6xl mx-auto">
-        {addItemBtn}
-        {inviteBtn}
-        {sessionStage === "Adding items" && (
+    // ── Active + host ──
+    if (isHost) {
+      // All items claimed → "Start review"
+      if (splitProgress.allClaimed && items.length > 0) {
+        return (
+          <button
+            type="button"
+            onClick={startReview}
+            className={`min-h-[52px] rounded-xl bg-[var(--accent)] text-white font-semibold text-base hover:bg-[var(--accent-dark)] active:scale-[0.98] transition-all shadow-[0_2px_8px_rgba(13,148,136,0.25)] ${w}`}
+          >
+            Start review →
+          </button>
+        );
+      }
+      // Items still unclaimed
+      return (
+        <div className={`flex gap-2 ${w}`}>
           <button
             type="button"
             onClick={scrollToAddItem}
-            className="flex-1 min-h-[48px] bg-slate-900 text-white rounded-xl font-medium active:scale-[0.98] transition-transform hover:bg-slate-800"
+            className="min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white font-medium text-slate-700 text-sm hover:bg-slate-50 active:scale-[0.98] transition-all shrink-0"
           >
-            Add item
+            + Item
           </button>
-        )}
-        {sessionStage === "Claiming items" && (
           <button
             type="button"
-            onClick={shareInvite}
-            className="flex-1 min-h-[48px] bg-slate-900 text-white rounded-xl font-medium active:scale-[0.98] transition-transform hover:bg-slate-800"
+            onClick={() => setShowShareSheet(true)}
+            className="min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white font-medium text-slate-700 text-sm hover:bg-slate-50 active:scale-[0.98] transition-all shrink-0"
           >
-            Invite friends
+            Share
           </button>
-        )}
+          <div className="flex-1 flex items-center justify-center rounded-xl bg-slate-100 text-slate-500 font-medium text-sm min-h-[48px] px-3 text-center">
+            {items.length === 0
+              ? "Add items to start"
+              : `${splitProgress.unclaimedCount} item${splitProgress.unclaimedCount !== 1 ? "s" : ""} unclaimed`}
+          </div>
+        </div>
+      );
+    }
+
+    // ── Active + participant owes (settling) ──
+    if (sessionStage === "Settling payments" && viewerOwesMoney) {
+      return (
+        <div className={`flex gap-2 ${w}`}>
+          <div className="flex items-center rounded-xl bg-slate-100 px-4 min-h-[48px] text-sm text-slate-700 shrink-0 font-medium">
+            You owe <span className="font-bold ml-1">${viewerSettlement!.amount.toFixed(2)}</span>
+          </div>
+          {host?.venmo_username?.trim() ? (
+            <a
+              href={createVenmoLink(viewerSettlement!.amount, host.venmo_username)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex-1 min-h-[48px] flex items-center justify-center rounded-xl bg-[var(--accent)] text-white font-semibold text-sm hover:bg-[var(--accent-dark)] active:scale-[0.98] transition-all"
+            >
+              Pay with Venmo
+            </a>
+          ) : (
+            <span className="flex-1 min-h-[48px] flex items-center justify-center rounded-xl bg-slate-100 text-slate-400 text-sm">
+              Host hasn&apos;t added Venmo yet
+            </span>
+          )}
+        </div>
+      );
+    }
+
+    // ── Active + participant: show running total ──
+    return (
+      <div className={`flex gap-2 ${w}`}>
+        <button
+          type="button"
+          onClick={scrollToAddItem}
+          className="min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white font-medium text-slate-700 text-sm hover:bg-slate-50 active:scale-[0.98] transition-all shrink-0"
+        >
+          + Item
+        </button>
+        <div className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-slate-100 min-h-[48px] text-sm text-slate-600 font-medium px-3">
+          Your total:
+          <span className="font-bold text-slate-900">
+            ${(viewerBreakdown?.total ?? 0).toFixed(2)}
+          </span>
+        </div>
       </div>
     );
   })();
@@ -1147,37 +1375,48 @@ export default function SessionClient({
             {/* Left: title + participants + split progress; cap width so split progress and join code don't overlap */}
             <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-end gap-4 lg:gap-6 md:max-w-[65%] lg:max-w-[70%]">
               <div className="min-w-0 space-y-3 flex-none">
-                <div>
-                  {editingTitle ? (
-                    <input
-                      value={titleInput}
-                      onChange={e => setTitleInput(e.target.value)}
-                      onBlur={updateSessionTitle}
-                      onKeyDown={e => {
-                        if (e.key === "Enter") updateSessionTitle();
-                      }}
-                      autoFocus
-                      className="text-2xl sm:text-3xl font-bold w-full outline-none bg-transparent text-slate-900"
-                    />
-                  ) : (
+                <div className="flex items-start gap-3">
+                  <div className="min-w-0 flex-1">
+                    {editingTitle ? (
+                      <input
+                        value={titleInput}
+                        onChange={e => setTitleInput(e.target.value)}
+                        onBlur={updateSessionTitle}
+                        onKeyDown={e => {
+                          if (e.key === "Enter") updateSessionTitle();
+                        }}
+                        autoFocus
+                        className="text-2xl sm:text-3xl font-bold w-full outline-none bg-transparent text-slate-900"
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => isHost && setEditingTitle(true)}
+                        className={`text-left w-full rounded-lg px-2 -mx-2 py-1.5 border border-transparent hover:border-slate-200 focus:border-teal-400 focus:outline-none transition-colors ${
+                          isHost ? "cursor-pointer active:opacity-80" : "cursor-default"
+                        }`}
+                      >
+                        <span className="text-2xl sm:text-3xl font-bold text-slate-900 flex items-center gap-2 flex-wrap">
+                          {sessionTitle}
+                          {isHost && (
+                            <span className="inline-flex items-center gap-1.5 text-xs font-normal text-slate-400">
+                              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                              </svg>
+                              Tap to rename
+                            </span>
+                          )}
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                  {joinCode && (
                     <button
                       type="button"
-                      onClick={() => isHost && setEditingTitle(true)}
-                      className={`text-left w-full rounded-lg px-2 -mx-2 py-1.5 border border-transparent hover:border-slate-200 focus:border-teal-400 focus:outline-none transition-colors ${
-                        isHost ? "cursor-pointer active:opacity-80" : "cursor-default"
-                      }`}
+                      onClick={() => setShowShareSheet(true)}
+                      className="shrink-0 mt-1 min-h-[36px] px-3 rounded-lg border border-slate-200 bg-white text-slate-600 text-sm font-medium hover:bg-slate-50 active:scale-95 transition-all"
                     >
-                      <span className="text-2xl sm:text-3xl font-bold text-slate-900 flex items-center gap-2 flex-wrap">
-                        {sessionTitle}
-                        {isHost && (
-                          <span className="inline-flex items-center gap-1.5 text-xs font-normal text-slate-400">
-                            <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                            </svg>
-                            Tap to rename
-                          </span>
-                        )}
-                      </span>
+                      Share ↗
                     </button>
                   )}
                 </div>
@@ -1188,6 +1427,8 @@ export default function SessionClient({
                     paidIds={paidIds}
                     hostParticipantId={hostParticipantId}
                     getAvatarColor={getAvatarColor}
+                    isHost={isHost}
+                    onEditPaymentInfo={openPaymentEditSheet}
                   />
                 </div>
               </div>
@@ -1201,16 +1442,6 @@ export default function SessionClient({
               </div>
             </div>
 
-            {/* Right: join code stays in original position (pushed right) */}
-            {joinCode && (
-              <div className="flex-shrink-0 md:ml-auto">
-                <JoinCodeBanner
-                  code={joinCode}
-                  participantCount={participants.length}
-                  sessionId={sessionId}
-                />
-              </div>
-            )}
           </div>
         </div>
       }
@@ -1274,6 +1505,23 @@ export default function SessionClient({
             )}
           </div>
 
+          {/* Invite banner — only when host is alone and session is active */}
+          {isHost && participants.length === 1 && status === "active" && (
+            <div className="rounded-xl border border-teal-200 bg-teal-50/90 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-teal-900 text-sm">Add your items first, then invite your group</p>
+                <p className="text-xs text-teal-700 mt-0.5">Friends can join, see items, and claim what they ordered</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowShareSheet(true)}
+                className="shrink-0 min-h-[44px] px-5 rounded-xl bg-teal-600 text-white font-semibold text-sm hover:bg-teal-700 active:scale-[0.98] transition-all"
+              >
+                Share & Invite
+              </button>
+            </div>
+          )}
+
           {/* Items — main list */}
           <section className="lg:mr-0">
             <h2 className="text-lg font-semibold text-slate-900 mb-2">Items</h2>
@@ -1290,6 +1538,10 @@ export default function SessionClient({
               setEditingClaim={setEditingClaim}
               setAmountInput={setAmountInput}
               lastClaimedItem={lastClaimedItem}
+              isHost={isHost}
+              isActive={status === "active"}
+              onSaveItem={saveItem}
+              onDeleteItem={deleteItem}
             />
           </section>
         </div>
@@ -1365,6 +1617,9 @@ export default function SessionClient({
               markPaid={markPaid}
               createVenmoLink={createVenmoLink}
               hostVenmoUsername={host?.venmo_username}
+              hostCashAppUsername={host?.cashapp_username}
+              isCurrentUserHost={isHost}
+              onOpenPaymentEdit={openPaymentEditSheet}
               copyPaymentRequest={copyPaymentRequest}
               copyAllPaymentRequests={copyAllPaymentRequests}
               startReview={startReview}
@@ -1437,6 +1692,9 @@ export default function SessionClient({
               markPaid={markPaid}
               createVenmoLink={createVenmoLink}
               hostVenmoUsername={host?.venmo_username}
+              hostCashAppUsername={host?.cashapp_username}
+              isCurrentUserHost={isHost}
+              onOpenPaymentEdit={openPaymentEditSheet}
               copyPaymentRequest={copyPaymentRequest}
               copyAllPaymentRequests={copyAllPaymentRequests}
               startReview={startReview}
@@ -1577,6 +1835,16 @@ export default function SessionClient({
             <div className="space-y-3">
               <button
                 type="button"
+                onClick={() => void exportPDF()}
+                className="w-full border border-[var(--accent)] text-[var(--accent)] py-3.5 rounded-xl font-semibold min-h-[48px] active:scale-[0.98] transition-transform hover:bg-teal-50 flex items-center justify-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                </svg>
+                Export PDF
+              </button>
+              <button
+                type="button"
                 onClick={() => setShowCompletion(false)}
                 className="w-full border border-slate-200 bg-white text-slate-700 py-3.5 rounded-xl font-medium min-h-[48px] active:scale-[0.98] transition-transform hover:bg-slate-50"
               >
@@ -1601,53 +1869,131 @@ export default function SessionClient({
         onExtractItems={extractItemsFromFile}
       />
 
-      {editingClaim && (
+      {editingClaim && (() => {
+        const item = items.find((i) => i.id === editingClaim.item_id);
+        if (!item) return null;
+        const otherClaims = claims.filter(
+          (c) => c.item_id === editingClaim.item_id && c.id !== editingClaim.id,
+        );
+        const usedByOthers = otherClaims.reduce((sum, c) => sum + (c.amount ?? 0), 0);
+        const maxAllowed = Math.max(0, (item.price ?? 0) - usedByOthers);
+        return (
+          <div
+            className="fixed inset-0 bg-black/40 flex items-end justify-center z-50"
+            onClick={() => { setEditingClaim(null); setAmountInput(""); }}
+          >
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              transition={{ type: "spring", damping: 30, stiffness: 300 }}
+              className="bg-white w-full max-w-md rounded-t-2xl p-6 space-y-5"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto" />
+              <div className="text-center space-y-0.5">
+                <p className="font-semibold text-slate-900">{item.name}</p>
+                <p className="text-sm text-[var(--text-muted)]">
+                  Total ${(item.price ?? 0).toFixed(2)}
+                  {otherClaims.length > 0 && (
+                    <> · <span className="font-medium">${maxAllowed.toFixed(2)} available</span></>
+                  )}
+                </p>
+              </div>
+              <div className="flex items-center justify-center gap-2">
+                <span className="text-2xl font-medium text-slate-400">$</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="0.01"
+                  min="0"
+                  max={maxAllowed}
+                  value={amountInput}
+                  onChange={(e) => setAmountInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") commitAmount(editingClaim); }}
+                  autoFocus
+                  placeholder="0.00"
+                  className="w-32 text-3xl font-bold text-center text-slate-900 border-b-2 border-[var(--accent)] bg-transparent outline-none py-1"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => commitAmount(editingClaim)}
+                className="w-full min-h-[52px] rounded-xl bg-[var(--accent)] text-white font-semibold text-base hover:bg-[var(--accent-dark)] active:scale-[0.98] transition-all"
+              >
+                Save my share
+              </button>
+              <button
+                type="button"
+                onClick={() => { setEditingClaim(null); setAmountInput(""); }}
+                className="w-full text-sm text-[var(--text-muted)] py-1"
+              >
+                Cancel
+              </button>
+            </motion.div>
+          </div>
+        );
+      })()}
+      {showPaymentEditSheet && isHost && (
         <div className="fixed inset-0 bg-black/40 flex items-end justify-center z-50">
-          <div className="bg-white w-full max-w-md rounded-t-2xl p-6 space-y-4">
-            <h3 className="text-lg font-semibold text-center">
-              Enter Amount
-            </h3>
-
-            <input
-              type="number"
-              inputMode="decimal"
-              step="0.01"
-              value={amountInput}
-              onChange={e => setAmountInput(e.target.value)}
-              placeholder="0.00"
-              className="w-full border rounded-lg p-3 text-center text-lg"
-            />
-
-            <div className="grid grid-cols-3 gap-2">
-              {[5, 10, 20].map(v => (
-                <button
-                  key={v}
-                  onClick={() => setAmountInput(String(v))}
-                  className="border rounded-lg py-2"
-                >
-                  ${v}
-                </button>
-              ))}
+          <motion.div
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            transition={{ type: "spring", damping: 30, stiffness: 300 }}
+            className="bg-white w-full max-w-md rounded-t-2xl p-6 space-y-4"
+          >
+            <h3 className="text-lg font-semibold text-center">Payment info</h3>
+            <p className="text-sm text-slate-500 text-center">
+              So others can pay you directly
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="text-sm font-medium text-slate-700">
+                  Venmo username
+                </label>
+                <input
+                  value={editVenmoInput}
+                  onChange={e => setEditVenmoInput(e.target.value)}
+                  placeholder="@username"
+                  className="mt-1 w-full min-h-[44px] px-4 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-700">
+                  CashApp username
+                </label>
+                <input
+                  value={editCashAppInput}
+                  onChange={e => setEditCashAppInput(e.target.value)}
+                  placeholder="$username"
+                  className="mt-1 w-full min-h-[44px] px-4 rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
+                />
+              </div>
             </div>
-
             <button
-              onClick={() => commitAmount(editingClaim)}
-              className="w-full bg-black text-white py-3 rounded-xl"
+              type="button"
+              onClick={savePaymentInfo}
+              className="w-full min-h-[48px] bg-teal-500 text-white rounded-xl font-semibold hover:bg-teal-600 active:scale-[0.98] transition-all"
             >
               Save
             </button>
-
             <button
-              onClick={() => {
-                setEditingClaim(null);
-                setAmountInput("");
-              }}
-              className="w-full text-gray-500"
+              type="button"
+              onClick={() => setShowPaymentEditSheet(false)}
+              className="w-full text-slate-500 py-2"
             >
               Cancel
             </button>
-          </div>
+          </motion.div>
         </div>
+      )}
+
+      {joinCode && (
+        <ShareSheet
+          isOpen={showShareSheet}
+          onClose={() => setShowShareSheet(false)}
+          sessionId={sessionId}
+          joinCode={joinCode}
+        />
       )}
     </SessionShell>
   );

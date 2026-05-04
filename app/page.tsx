@@ -30,10 +30,9 @@ export default function Home() {
 
   return (
     <main className="min-h-screen flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 py-8 lg:py-12">
-      {/* Desktop: asymmetric two-column — hero left, card right. Mobile: stacked centered. */}
       <div className="w-full max-w-[420px] md:max-w-4xl lg:max-w-5xl mx-auto">
         <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between lg:gap-12 gap-10">
-          {/* Left: hero text — on desktop takes ~half, not centered */}
+          {/* Left: hero text */}
           <motion.div
             className="flex-1 text-center lg:text-left space-y-4"
             initial={{ opacity: 0, x: -16 }}
@@ -44,22 +43,22 @@ export default function Home() {
               Divvy
             </h1>
             <p className="text-base sm:text-lg text-slate-600 max-w-md mx-auto lg:mx-0">
-              Split bills with friends instantly. One code. Everyone in.
+              Split any bill instantly — no accounts, no app, just a link.
             </p>
           </motion.div>
 
-          {/* Right: card — on desktop narrower, floats beside hero */}
+          {/* Right: action card */}
           <motion.div
             className="flex-shrink-0 w-full max-w-md mx-auto lg:mx-0 lg:max-w-[380px]"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45, delay: 0.1, ease: [0.25, 0.46, 0.45, 0.94] }}
           >
-            <div className="rounded-2xl border border-slate-200/90 bg-white/95 backdrop-blur-sm p-6 sm:p-8 space-y-5 shadow-sm animate-idle-shimmer">
+            <div className="rounded-2xl border border-slate-200/90 bg-white/95 backdrop-blur-sm p-6 sm:p-8 space-y-5 shadow-[var(--shadow-card)] animate-idle-shimmer">
               <button
                 type="button"
                 onClick={() => router.push("/create")}
-                className="w-full bg-slate-900 text-white py-3.5 px-4 rounded-xl font-semibold text-base active:scale-[0.98] transition-transform min-h-[52px] hover:bg-slate-800"
+                className="w-full bg-[var(--accent)] text-white py-3.5 px-4 rounded-xl font-semibold text-base active:scale-[0.98] transition-transform min-h-[52px] hover:bg-[var(--accent-dark)]"
               >
                 Start a split
               </button>
@@ -99,6 +98,33 @@ export default function Home() {
             </div>
           </motion.div>
         </div>
+
+        {/* How it works — below the hero/card row */}
+        <motion.div
+          className="mt-12 lg:mt-16"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.45, delay: 0.3 }}
+        >
+          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 text-center mb-6">
+            How it works
+          </p>
+          <div className="grid grid-cols-3 gap-4 sm:gap-8">
+            {[
+              { step: "1", title: "Create", desc: "Start a split in seconds — restaurant or general" },
+              { step: "2", title: "Share", desc: "Send the link or 5-character code to your group" },
+              { step: "3", title: "Everyone pays", desc: "Each person claims their items and pays the host" },
+            ].map(({ step, title, desc }) => (
+              <div key={step} className="text-center space-y-2">
+                <div className="w-9 h-9 rounded-full bg-teal-100 text-teal-700 font-bold text-sm flex items-center justify-center mx-auto">
+                  {step}
+                </div>
+                <p className="text-sm font-semibold text-slate-800">{title}</p>
+                <p className="text-xs text-slate-500 leading-relaxed hidden sm:block">{desc}</p>
+              </div>
+            ))}
+          </div>
+        </motion.div>
       </div>
     </main>
   );
