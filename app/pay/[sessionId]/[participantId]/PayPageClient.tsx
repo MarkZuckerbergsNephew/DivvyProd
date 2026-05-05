@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 import { calculateTotals } from "@/lib/billMath";
 import { motion, AnimatePresence } from "framer-motion";
 

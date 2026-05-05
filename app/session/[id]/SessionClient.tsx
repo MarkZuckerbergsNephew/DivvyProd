@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 import { calculateTotals } from "@/lib/billMath";
 import { useSessionRealtime } from "@/hooks/useSessionRealtime";
 import { useToast } from "@/hooks/useToast";

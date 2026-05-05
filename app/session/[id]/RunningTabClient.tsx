@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 import { useSessionRealtime } from "@/hooks/useSessionRealtime";
 import { useToast } from "@/hooks/useToast";
 import { logActivity } from "@/lib/activityLog";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase-browser";
 import { createSupabaseBrowserClient } from "@/lib/supabase-browser";
 import { generateJoinCode } from "@/lib/generateCode";
 import { useState, useEffect } from "react";
