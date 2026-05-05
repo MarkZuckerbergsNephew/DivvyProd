@@ -2051,7 +2051,7 @@ export default function SessionClient({
                 </p>
               </div>
               <div className="flex items-center justify-center gap-2">
-                <span className="text-2xl font-medium text-slate-400">$</span>
+                <span className="text-2xl font-medium text-slate-600">$</span>
                 <input
                   type="number"
                   inputMode="decimal"

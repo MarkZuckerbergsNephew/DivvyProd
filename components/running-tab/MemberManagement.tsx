@@ -151,7 +151,7 @@ export default function MemberManagement({
                       ? "text-emerald-600"
                       : bal < -0.005
                       ? "text-red-500"
-                      : "text-slate-400"
+                      : "text-slate-600"
                   }`}
                 >
                   {bal > 0.005
@@ -167,7 +167,7 @@ export default function MemberManagement({
                   <button
                     type="button"
                     onClick={() => openConfirm(p, "transfer")}
-                    className="text-xs text-slate-400 hover:text-amber-600 transition-colors min-h-[32px] px-2 font-medium"
+                    className="text-xs text-slate-500 hover:text-amber-600 transition-colors min-h-[32px] px-2 font-medium"
                   >
                     Make host
                   </button>
@@ -176,7 +176,7 @@ export default function MemberManagement({
                   <button
                     type="button"
                     onClick={() => openConfirm(p, "remove")}
-                    className="text-xs text-slate-400 hover:text-red-500 transition-colors min-h-[32px] px-2 font-medium"
+                    className="text-xs text-slate-500 hover:text-red-500 transition-colors min-h-[32px] px-2 font-medium"
                   >
                     Remove
                   </button>

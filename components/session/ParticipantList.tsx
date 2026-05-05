@@ -109,7 +109,7 @@ export default function ParticipantList({
             <div className="w-10 h-10 rounded-full border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-400 hover:border-teal-400 hover:text-teal-500 transition-colors">
               <span className="text-lg leading-none">$</span>
             </div>
-            <span className="text-[10px] text-slate-400 font-medium">Venmo</span>
+            <span className="text-[10px] text-slate-500 font-medium">Venmo</span>
           </button>
         )}
       </div>

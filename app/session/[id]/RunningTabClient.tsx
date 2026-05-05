@@ -802,7 +802,7 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
             className={`w-full min-h-[52px] rounded-xl font-semibold text-base transition-all duration-150 ${
               debtTxs.length > 0
                 ? "bg-[var(--accent)] text-white hover:bg-[var(--accent-dark)] shadow-[0_2px_8px_rgba(13,148,136,0.25)] active:scale-[0.98]"
-                : "bg-slate-100 text-slate-400 cursor-not-allowed"
+                : "bg-slate-100 text-slate-500 cursor-not-allowed"
             }`}
           >
             {debtTxs.length > 0
@@ -1148,7 +1148,7 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
                 </p>
               </div>
               <div className="flex items-center justify-center gap-2">
-                <span className="text-2xl font-medium text-slate-400">$</span>
+                <span className="text-2xl font-medium text-slate-600">$</span>
                 <input
                   type="number"
                   inputMode="decimal"

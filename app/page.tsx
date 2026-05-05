@@ -63,7 +63,7 @@ export default function Home() {
                 Start a split
               </button>
 
-              <div className="relative flex items-center gap-3 text-sm text-slate-400">
+              <div className="relative flex items-center gap-3 text-sm text-slate-500">
                 <span className="flex-1 h-px bg-slate-200" />
                 or enter code
                 <span className="flex-1 h-px bg-slate-200" />
@@ -106,7 +106,7 @@ export default function Home() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.45, delay: 0.3 }}
         >
-          <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 text-center mb-6">
+          <p className="text-xs font-semibold uppercase tracking-widest text-slate-500 text-center mb-6">
             How it works
           </p>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8">

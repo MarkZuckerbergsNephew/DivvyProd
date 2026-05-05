@@ -116,7 +116,7 @@ export default function RecurringExpenses({ expenses, onAdd, onDelete }: Props) 
                 type="button"
                 onClick={() => handleDelete(exp.id)}
                 disabled={deletingId === exp.id}
-                className="text-slate-300 hover:text-red-400 transition-colors p-1 disabled:opacity-40 min-h-[28px]"
+                className="text-slate-400 hover:text-red-400 transition-colors p-1 disabled:opacity-40 min-h-[28px]"
                 aria-label="Delete"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

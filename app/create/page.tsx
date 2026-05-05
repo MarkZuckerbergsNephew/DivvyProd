@@ -174,7 +174,7 @@ function StepDot({ active, done, label }: { active: boolean; done: boolean; labe
         active ? "bg-[var(--accent)] scale-125" : done ? "bg-[var(--accent)]" : "bg-slate-200"
       }`} />
       <span className={`text-[10px] font-medium transition-colors duration-200 ${
-        active ? "text-[var(--accent)]" : done ? "text-[var(--accent)]" : "text-slate-400"
+        active ? "text-[var(--accent)]" : done ? "text-[var(--accent)]" : "text-slate-500"
       }`}>{label}</span>
     </div>
   );
@@ -435,7 +435,7 @@ function StepType({
                     {badge}
                   </span>
                 </div>
-                <svg className="w-4 h-4 text-slate-300 mt-1 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <svg className="w-4 h-4 text-slate-400 mt-1 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
               </div>

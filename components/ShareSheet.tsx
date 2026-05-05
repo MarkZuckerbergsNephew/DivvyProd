@@ -97,7 +97,7 @@ export default function ShareSheet({ isOpen, onClose, sessionId, joinCode, actio
               {/* Join code */}
               {joinCode && (
                 <div className="text-center space-y-1">
-                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-400">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
                     Join code
                   </p>
                   <p className="text-3xl font-mono font-bold tracking-[0.3em] text-slate-900">

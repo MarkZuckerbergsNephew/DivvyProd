@@ -100,7 +100,7 @@ export default function BalanceDashboard({
               <ParticipantAvatar name={p.name} size="md" />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium text-slate-900 truncate">{p.name}</p>
-                <span className="text-xs text-slate-400 font-medium">{firstName} · Settled up ✓</span>
+                <span className="text-xs text-slate-600 font-medium">{firstName} · Settled up ✓</span>
               </div>
             </div>
           );

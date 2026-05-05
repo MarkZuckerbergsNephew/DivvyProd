@@ -147,7 +147,7 @@ export default function SettlementPanel({
                       <button
                         type="button"
                         disabled
-                        className="inline-flex items-center justify-center min-h-[40px] px-4 rounded-xl bg-slate-100 text-slate-400 text-sm font-medium cursor-not-allowed"
+                        className="inline-flex items-center justify-center min-h-[40px] px-4 rounded-xl bg-slate-100 text-slate-500 text-sm font-medium cursor-not-allowed"
                       >
                         Host hasn&apos;t added Venmo yet
                       </button>

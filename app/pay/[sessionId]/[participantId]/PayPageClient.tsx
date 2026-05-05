@@ -205,7 +205,7 @@ export default function PayPageClient({
                       Pay ${amount.toFixed(2)} with Venmo
                     </a>
                   ) : (
-                    <div className="w-full min-h-[52px] rounded-xl bg-slate-100 flex items-center justify-center text-slate-400 text-sm font-medium">
+                    <div className="w-full min-h-[52px] rounded-xl bg-slate-100 flex items-center justify-center text-slate-600 text-sm font-medium">
                       Host hasn&apos;t added Venmo yet
                     </div>
                   )}

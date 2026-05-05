@@ -101,12 +101,7 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
+/* App is light-mode only — never invert colors on dark OS preference */
 
 body {
   background: var(--background);
@@ -117,6 +112,25 @@ body {
 
 html {
   overflow-x: hidden;
+}
+
+/* iOS Safari overrides input text color with system gray — force it dark */
+* {
+  -webkit-text-fill-color: inherit;
+}
+
+input,
+textarea,
+select {
+  color: var(--text);
+  -webkit-text-fill-color: var(--text);
+}
+
+/* Placeholders stay light */
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8;
+  -webkit-text-fill-color: #94a3b8;
 }
 
 /* Mobile-first: safe area for notched devices */
