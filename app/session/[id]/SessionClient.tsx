@@ -175,6 +175,7 @@ export default function SessionClient({
 
   const [hostParticipantId, setHostParticipantId] =
     useState<string | null>(null);
+  const [sessionLoaded, setSessionLoaded] = useState(false);
   const [status, setStatus] = useState<string>("active");
   const [splitType, setSplitType] =
     useState<"restaurant" | "general" | null>(null);
@@ -302,6 +303,7 @@ export default function SessionClient({
     const tip = (data as { tip_amount?: number }).tip_amount;
     setTaxInput(tax != null && tax !== 0 ? String(tax) : "");
     setTipInput(tip != null && tip !== 0 ? String(tip) : "");
+    setSessionLoaded(true);
   }
 
   async function fetchItems() {
@@ -2150,7 +2152,7 @@ export default function SessionClient({
 
       <OnboardingOverlay
         storageKey="divvy_onboarded"
-        ready={participantId !== null && hostParticipantId !== null}
+        ready={sessionLoaded && participantId !== null}
         steps={
           isHost
             ? [

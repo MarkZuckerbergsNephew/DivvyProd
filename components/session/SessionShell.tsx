@@ -15,7 +15,7 @@ export default function SessionShell({
         </div>
 
         {/* Main Content — narrow on mobile, wide on desktop for grid layout */}
-        <main className="flex-1 w-full max-w-[480px] md:max-w-4xl lg:max-w-6xl mx-auto px-5 py-6 sm:py-8 transform-gpu">
+        <main className="flex-1 w-full max-w-[480px] md:max-w-4xl lg:max-w-6xl mx-auto px-5 py-6 sm:py-8">
           {children}
         </main>
 
