@@ -160,24 +160,24 @@ export default function SettleUpSheet({
                       }`}
                     >
                       {/* Payer → Amount → Receiver */}
-                      <div className="flex items-center gap-2 mb-3">
-                        <div className="flex items-center gap-1.5 shrink-0">
+                      <div className="flex items-center gap-2 mb-3 flex-wrap sm:flex-nowrap">
+                        <div className="flex items-center gap-1.5 min-w-0">
                           <ParticipantAvatar name={fromP.name} size="md" />
-                          <span className="text-sm font-semibold text-slate-900">
+                          <span className="text-sm font-semibold text-slate-900 truncate max-w-[80px] sm:max-w-none">
                             {fromP.id === currentParticipantId ? "You" : fromP.name}
                           </span>
                         </div>
 
-                        <div className="flex-1 flex items-center gap-1">
+                        <div className="flex-1 flex items-center gap-1 min-w-[60px]">
                           <div className="h-px flex-1 bg-slate-200" />
-                          <span className="shrink-0 text-base font-bold text-slate-900 tabular-nums bg-white border border-slate-200 px-2 py-0.5 rounded-full">
+                          <span className="shrink-0 text-sm font-bold text-slate-900 tabular-nums bg-white border border-slate-200 px-2 py-0.5 rounded-full">
                             ${tx.amount.toFixed(2)}
                           </span>
                           <div className="h-px flex-1 bg-slate-200" />
                         </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="text-sm font-semibold text-slate-900">
+                        <div className="flex items-center gap-1.5 min-w-0">
+                          <span className="text-sm font-semibold text-slate-900 truncate max-w-[80px] sm:max-w-none">
                             {toP.id === currentParticipantId ? "You" : toP.name}
                           </span>
                           <ParticipantAvatar name={toP.name} size="md" />

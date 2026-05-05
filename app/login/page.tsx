@@ -128,7 +128,7 @@ function LoginForm() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.35, ease: [0.25, 0.46, 0.45, 0.94] }}
       >
-        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] shadow-[var(--shadow-elevated)] p-8 space-y-6">
+        <div className="rounded-2xl border border-[var(--border)] bg-[var(--bg-card)] shadow-[var(--shadow-elevated)] p-6 sm:p-8 space-y-6">
           <div className="text-center space-y-1">
             <h1 className="text-2xl font-bold text-[var(--text)] tracking-tight">
               {view === "sign-in" ? "Welcome back" : "Reset your password"}

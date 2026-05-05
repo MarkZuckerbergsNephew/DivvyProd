@@ -8,12 +8,11 @@ import { useSessionRealtime } from "@/hooks/useSessionRealtime";
 import { useToast } from "@/hooks/useToast";
 import { motion } from "framer-motion";
 import ShareSheet from "@/components/ShareSheet";
+import { getParticipantColor, getInitials } from "@/lib/participantColor";
 import {
   SessionShell,
   BillSummaryCard,
   TaxTipInputs,
-  SplitProgress,
-  ParticipantList,
   ItemList,
   SettlementPanel,
   ScanReceiptModal,
@@ -25,6 +24,7 @@ type Item = {
   id: string;
   name: string;
   price: number | null;
+  category?: string | null;
 };
 
 type Claim = {
@@ -77,6 +77,82 @@ function getAvatarColor(id: string) {
 function clampMoney(value: number) {
   if (isNaN(value) || value < 0) return 0;
   return value;
+}
+
+const RESTAURANT_CATS = [
+  { id: "food",    label: "Food",    emoji: "🍔" },
+  { id: "drinks",  label: "Drinks",  emoji: "🥤" },
+  { id: "dessert", label: "Dessert", emoji: "🍰" },
+  { id: "other",   label: "Other",   emoji: "📦" },
+];
+
+const GENERAL_CATS = [
+  { id: "transport",     label: "Transport",     emoji: "🚗" },
+  { id: "entertainment", label: "Entertainment", emoji: "🎬" },
+  { id: "food",          label: "Food",          emoji: "🍕" },
+  { id: "supplies",      label: "Supplies",      emoji: "🛒" },
+  { id: "other",         label: "Other",         emoji: "📦" },
+];
+
+const CAT_COLOR: Record<string, { color: string; bg: string }> = {
+  food:          { color: "#F97316", bg: "#FFF7ED" },
+  drinks:        { color: "#3B82F6", bg: "#EFF6FF" },
+  dessert:       { color: "#EC4899", bg: "#FDF2F8" },
+  transport:     { color: "#3B82F6", bg: "#EFF6FF" },
+  entertainment: { color: "#EC4899", bg: "#FDF2F8" },
+  supplies:      { color: "#22C55E", bg: "#F0FDF4" },
+  utilities:     { color: "#F59E0B", bg: "#FFFBEB" },
+  other:         { color: "#6B7280", bg: "#F3F4F6" },
+};
+
+/* ================= CIRCULAR PROGRESS ================= */
+
+function CircularProgress({
+  percent,
+  allClaimed,
+  totalItems,
+  claimedItems,
+}: {
+  percent: number;
+  allClaimed: boolean;
+  totalItems: number;
+  claimedItems: number;
+}) {
+  const r = 26;
+  const circumference = 2 * Math.PI * r;
+  const offset = circumference * (1 - percent / 100);
+  return (
+    <div className="flex flex-col items-center gap-1.5">
+      <svg width="64" height="64" viewBox="0 0 64 64" className="w-14 h-14 sm:w-16 sm:h-16">
+        <circle cx="32" cy="32" r={r} fill="none" stroke="#e2e8f0" strokeWidth="5" />
+        <circle
+          cx="32" cy="32" r={r} fill="none"
+          stroke="#0d9488" strokeWidth="5" strokeLinecap="round"
+          strokeDasharray={circumference} strokeDashoffset={offset}
+          transform="rotate(-90 32 32)"
+          style={{ transition: "stroke-dashoffset 0.5s ease" }}
+        />
+        <text x="32" y="32" textAnchor="middle" dominantBaseline="central"
+          fontSize="12" fontWeight="700" fill={allClaimed ? "#0d9488" : "#0f172a"}>
+          {allClaimed ? "✓" : percent > 0 ? `${percent}%` : ""}
+        </text>
+      </svg>
+      <div className="text-center">
+        {totalItems === 0 ? (
+          <p className="text-[10px] font-medium text-slate-500 leading-tight">No items yet</p>
+        ) : allClaimed ? (
+          <p className="text-[10px] font-semibold text-teal-600 leading-tight">All claimed!</p>
+        ) : percent === 0 ? (
+          <p className="text-[10px] font-semibold text-slate-600 leading-tight">Nothing claimed yet</p>
+        ) : (
+          <>
+            <p className="text-[10px] font-semibold text-slate-700 leading-tight">{claimedItems} of {totalItems} items</p>
+            <p className="text-[10px] text-slate-500 leading-tight">claimed</p>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 /* ================= COMPONENT ================= */
@@ -140,6 +216,7 @@ export default function SessionClient({
     new Set()
   );
 
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
   const [showScanModal, setShowScanModal] = useState(false);
@@ -471,6 +548,7 @@ export default function SessionClient({
       session_id: sessionId,
       name: name.trim(),
       price: numericPrice,
+      category: selectedCategory,
     });
 
     if (error) {
@@ -480,6 +558,7 @@ export default function SessionClient({
     fetchItems();
     setName("");
     setPrice("");
+    setSelectedCategory(null);
     itemInputRef.current?.focus();
   }
 
@@ -745,6 +824,8 @@ export default function SessionClient({
         percent: 0,
         unclaimedCount: 0,
         allClaimed: false,
+        claimedCount: 0,
+        totalItems: 0,
       };
     }
 
@@ -757,6 +838,8 @@ export default function SessionClient({
         percent: 100,
         unclaimedCount: 0,
         allClaimed: true,
+        claimedCount: items.length,
+        totalItems: items.length,
       };
     }
 
@@ -783,6 +866,8 @@ export default function SessionClient({
       percent,
       unclaimedCount,
       allClaimed: unclaimedCount === 0,
+      claimedCount: items.length - unclaimedCount,
+      totalItems: items.length,
     };
   }, [items, claims]);
 
@@ -1206,7 +1291,7 @@ export default function SessionClient({
             <button
               type="button"
               disabled
-              className="block w-full text-center min-h-[48px] flex items-center justify-center rounded-xl bg-slate-100 text-slate-400 font-medium cursor-not-allowed"
+              className="block w-full text-center min-h-[48px] flex items-center justify-center rounded-xl bg-slate-100 text-slate-500 font-medium cursor-not-allowed"
             >
               Host hasn&apos;t added Venmo yet
             </button>
@@ -1288,7 +1373,7 @@ export default function SessionClient({
           <button
             type="button"
             onClick={startReview}
-            className={`min-h-[52px] rounded-xl bg-[var(--accent)] text-white font-semibold text-base hover:bg-[var(--accent-dark)] active:scale-[0.98] transition-all shadow-[0_2px_8px_rgba(13,148,136,0.25)] ${w}`}
+            className={`min-h-[56px] rounded-2xl bg-[var(--accent)] text-white font-semibold text-base hover:bg-[var(--accent-dark)] active:scale-[0.98] transition-all shadow-[0_4px_12px_rgba(13,148,136,0.3)] ${w}`}
           >
             Start review →
           </button>
@@ -1337,7 +1422,7 @@ export default function SessionClient({
               Pay with Venmo
             </a>
           ) : (
-            <span className="flex-1 min-h-[48px] flex items-center justify-center rounded-xl bg-slate-100 text-slate-400 text-sm">
+            <span className="flex-1 min-h-[48px] flex items-center justify-center rounded-xl bg-slate-100 text-slate-500 text-sm">
               Host hasn&apos;t added Venmo yet
             </span>
           )}
@@ -1370,78 +1455,116 @@ export default function SessionClient({
   return (
     <SessionShell
       header={
-        <div className="max-w-[480px] md:max-w-4xl lg:max-w-6xl mx-auto px-4 pt-3 pb-4">
-          <div className="flex flex-col md:flex-row md:items-end md:gap-4 lg:gap-6 gap-4">
-            {/* Left: title + participants + split progress; cap width so split progress and join code don't overlap */}
-            <div className="min-w-0 flex-1 flex flex-col sm:flex-row sm:items-end gap-4 lg:gap-6 md:max-w-[65%] lg:max-w-[70%]">
-              <div className="min-w-0 space-y-3 flex-none">
-                <div className="flex items-start gap-3">
-                  <div className="min-w-0 flex-1">
-                    {editingTitle ? (
-                      <input
-                        value={titleInput}
-                        onChange={e => setTitleInput(e.target.value)}
-                        onBlur={updateSessionTitle}
-                        onKeyDown={e => {
-                          if (e.key === "Enter") updateSessionTitle();
-                        }}
-                        autoFocus
-                        className="text-2xl sm:text-3xl font-bold w-full outline-none bg-transparent text-slate-900"
-                      />
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => isHost && setEditingTitle(true)}
-                        className={`text-left w-full rounded-lg px-2 -mx-2 py-1.5 border border-transparent hover:border-slate-200 focus:border-teal-400 focus:outline-none transition-colors ${
-                          isHost ? "cursor-pointer active:opacity-80" : "cursor-default"
-                        }`}
-                      >
-                        <span className="text-2xl sm:text-3xl font-bold text-slate-900 flex items-center gap-2 flex-wrap">
-                          {sessionTitle}
-                          {isHost && (
-                            <span className="inline-flex items-center gap-1.5 text-xs font-normal text-slate-400">
-                              <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                              </svg>
-                              Tap to rename
-                            </span>
-                          )}
-                        </span>
-                      </button>
-                    )}
-                  </div>
-                  {joinCode && (
-                    <button
-                      type="button"
-                      onClick={() => setShowShareSheet(true)}
-                      className="shrink-0 mt-1 min-h-[36px] px-3 rounded-lg border border-slate-200 bg-white text-slate-600 text-sm font-medium hover:bg-slate-50 active:scale-95 transition-all"
-                    >
-                      Share ↗
-                    </button>
-                  )}
-                </div>
-                <div className="min-w-0 w-fit min-w-[200px] max-w-[420px]">
-                  <ParticipantList
-                    participants={participants}
-                    onlineIds={onlineIds}
-                    paidIds={paidIds}
-                    hostParticipantId={hostParticipantId}
-                    getAvatarColor={getAvatarColor}
-                    isHost={isHost}
-                    onEditPaymentInfo={openPaymentEditSheet}
-                  />
-                </div>
-              </div>
-              <div className="min-w-0 sm:min-w-[220px] flex-1">
-                <SplitProgress
-                  percent={splitProgress.percent}
-                  unclaimedCount={splitProgress.unclaimedCount}
-                  allClaimed={splitProgress.allClaimed}
-                  sessionStage={sessionStage}
+        <div className="max-w-[480px] md:max-w-4xl lg:max-w-6xl mx-auto px-5 pt-4 pb-5 space-y-4">
+          {/* Title row */}
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              {editingTitle ? (
+                <input
+                  value={titleInput}
+                  onChange={e => setTitleInput(e.target.value)}
+                  onBlur={updateSessionTitle}
+                  onKeyDown={e => { if (e.key === "Enter") updateSessionTitle(); }}
+                  autoFocus
+                  className="text-2xl sm:text-3xl font-bold w-full outline-none bg-transparent text-slate-900"
                 />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => isHost && setEditingTitle(true)}
+                  className={`text-left w-full rounded-lg px-2 -mx-2 py-1.5 border border-transparent hover:border-slate-200 focus:border-teal-400 focus:outline-none transition-colors ${
+                    isHost ? "cursor-pointer active:opacity-80" : "cursor-default"
+                  }`}
+                >
+                  <span className="flex items-baseline gap-2 flex-wrap">
+                    <span className="text-xl sm:text-2xl font-bold text-slate-900 truncate max-w-[200px] sm:max-w-none block">
+                      {sessionTitle}
+                    </span>
+                    {isHost && (
+                      <span className="hidden sm:inline-flex items-center gap-1.5 text-xs font-normal text-slate-500 shrink-0">
+                        <svg className="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                        </svg>
+                        Tap to rename
+                      </span>
+                    )}
+                  </span>
+                </button>
+              )}
+            </div>
+            {joinCode && (
+              <button
+                type="button"
+                onClick={() => setShowShareSheet(true)}
+                className="shrink-0 min-h-[36px] px-3 rounded-lg border border-slate-200 bg-white text-slate-600 text-sm font-medium hover:bg-slate-50 active:scale-95 transition-all"
+              >
+                Share ↗
+              </button>
+            )}
+          </div>
+
+          {/* Unified session card: avatars left, circular progress right */}
+          <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[var(--shadow-card)] px-4 py-3 flex items-center gap-4">
+            {/* Left: participant avatars */}
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 mb-2.5">
+                {participants.length} {participants.length === 1 ? "person" : "people"} · {onlineIds.length} online
+              </p>
+              <div className="flex items-end gap-3 overflow-x-auto pb-0.5 scrollbar-hide">
+                {participants.map((p) => {
+                  const isOnline = onlineIds.includes(p.id);
+                  const isPaid = paidIds.includes(p.id);
+                  const isParticipantHost = p.id === hostParticipantId;
+                  return (
+                    <div key={p.id} className="flex flex-col items-center gap-1 flex-shrink-0">
+                      <div className="relative">
+                        <div
+                          className="w-9 h-9 rounded-full flex items-center justify-center font-bold text-white text-sm border-2 border-white shadow-sm"
+                          style={{ backgroundColor: getParticipantColor(p.name) }}
+                        >
+                          {getInitials(p.name)}
+                        </div>
+                        {isOnline && !isPaid && (
+                          <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-teal-500 border-2 border-white" />
+                        )}
+                        {isPaid && (
+                          <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-emerald-500 border-2 border-white flex items-center justify-center text-white text-[8px] font-bold">✓</span>
+                        )}
+                        {isParticipantHost && (
+                          <span className="absolute -top-1.5 -right-1 text-[10px] leading-none">👑</span>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-slate-500 font-medium max-w-[40px] truncate text-center leading-tight">
+                        {p.name.split(" ")[0]}
+                      </span>
+                    </div>
+                  );
+                })}
+                {isHost && (
+                  <button
+                    type="button"
+                    onClick={openPaymentEditSheet}
+                    className="flex-shrink-0 flex flex-col items-center gap-1"
+                    title="Edit payment info"
+                  >
+                    <div className="w-9 h-9 rounded-full border-2 border-dashed border-slate-300 flex items-center justify-center text-slate-500 hover:border-teal-400 hover:text-teal-500 transition-colors">
+                      <span className="text-base leading-none font-semibold">$</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500 font-medium">Venmo</span>
+                  </button>
+                )}
               </div>
             </div>
 
+            {/* Right: circular progress ring */}
+            <div className="flex-shrink-0">
+              <CircularProgress
+                percent={splitProgress.percent}
+                allClaimed={splitProgress.allClaimed}
+                totalItems={splitProgress.totalItems}
+                claimedItems={splitProgress.claimedCount}
+              />
+            </div>
           </div>
         </div>
       }
@@ -1450,7 +1573,7 @@ export default function SessionClient({
       {/* Two-column on desktop: main flow left, summary rail right. Single column on mobile. */}
       <div className="lg:grid lg:grid-cols-[1fr_320px] lg:gap-8 lg:items-start pb-12">
         {/* LEFT: main flow — variable width, not a rigid stack */}
-        <div className="space-y-6 max-w-2xl lg:max-w-none">
+        <div className="space-y-7 max-w-2xl lg:max-w-none">
           {/* You owe / Pay now — mobile only, above add item so flow is seamless */}
           {personalCard && (
             <div className="lg:hidden min-w-0">
@@ -1460,54 +1583,84 @@ export default function SessionClient({
 
           {/* Add item — full width */}
           <div
-            className={`flex gap-2 transition-all ${
+            className={`space-y-2 transition-all ${
               focusSection === "input" ? "scale-[1.01]" : "opacity-90"
             }`}
           >
-            <input
-              ref={itemInputRef}
-              placeholder="Item name"
-              value={name}
-              onChange={e => setName(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  priceInputRef.current?.focus();
-                }
-              }}
-              className="flex-1 min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white/90 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
-            />
-            <input
-              ref={priceInputRef}
-              placeholder="$"
-              value={price}
-              onChange={e => setPrice(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === "Enter") addItem();
-              }}
-              className="w-20 min-h-[48px] px-3 rounded-xl border border-slate-200 bg-white/90 text-center placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
-            />
-            <button
-              type="button"
-              onClick={addItem}
-              className="min-h-[48px] px-4 rounded-xl bg-slate-900 text-white font-medium active:scale-[0.98] transition-transform hover:bg-slate-800"
-            >
-              Add
-            </button>
-            {status !== "completed" && (
+            <div className="flex gap-2">
+              <input
+                ref={itemInputRef}
+                placeholder="Item name"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    priceInputRef.current?.focus();
+                  }
+                }}
+                className="flex-1 min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white/90 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
+              />
+              <input
+                ref={priceInputRef}
+                placeholder="$"
+                value={price}
+                onChange={e => setPrice(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === "Enter") addItem();
+                }}
+                className="w-20 min-h-[48px] px-3 rounded-xl border border-slate-200 bg-white/90 text-center placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
+              />
               <button
                 type="button"
-                onClick={() => setShowScanModal(true)}
-                className="min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white/90 font-medium text-slate-600 active:scale-[0.98] transition-transform hover:bg-slate-50 shrink-0"
+                onClick={addItem}
+                className="min-h-[48px] px-4 rounded-xl bg-slate-900 text-white font-medium active:scale-[0.98] transition-transform hover:bg-slate-800"
               >
-                Scan receipt
+                Add
               </button>
-            )}
+              {status !== "completed" && (
+                <button
+                  type="button"
+                  onClick={() => setShowScanModal(true)}
+                  className="min-h-[48px] px-3 sm:px-4 rounded-xl border border-slate-200 bg-white/90 font-medium text-slate-600 active:scale-[0.98] transition-transform hover:bg-slate-50 shrink-0 flex items-center gap-1.5"
+                  title="Scan receipt"
+                >
+                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
+                  </svg>
+                  <span className="hidden sm:inline">Scan receipt</span>
+                </button>
+              )}
+            </div>
+            {/* Category chips */}
+            <div className="flex gap-1.5 flex-wrap">
+              {(splitType === "restaurant" ? RESTAURANT_CATS : GENERAL_CATS).map((cat) => {
+                const active = selectedCategory === cat.id;
+                const style = CAT_COLOR[cat.id] ?? CAT_COLOR.other;
+                return (
+                  <button
+                    key={cat.id}
+                    type="button"
+                    onClick={() => setSelectedCategory(active ? null : cat.id)}
+                    className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium transition-all active:scale-95 min-h-[28px]"
+                    style={{
+                      backgroundColor: active ? style.color : style.bg,
+                      color: active ? "#fff" : style.color,
+                      border: `1px solid ${style.color}55`,
+                    }}
+                  >
+                    <span>{cat.emoji}</span>
+                    <span>{cat.label}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Invite banner — only when host is alone and session is active */}
           {isHost && participants.length === 1 && status === "active" && (
-            <div className="rounded-xl border border-teal-200 bg-teal-50/90 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+            <div className="rounded-xl border-2 border-dashed border-teal-300 bg-teal-50/40 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-teal-900 text-sm">Add your items first, then invite your group</p>
                 <p className="text-xs text-teal-700 mt-0.5">Friends can join, see items, and claim what they ordered</p>
@@ -1524,7 +1677,7 @@ export default function SessionClient({
 
           {/* Items — main list */}
           <section className="lg:mr-0">
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Items</h2>
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">Items</h2>
             <ItemList
               items={items}
               claims={claims}
@@ -1547,7 +1700,7 @@ export default function SessionClient({
         </div>
 
         {/* RIGHT: sticky summary rail — only on desktop */}
-        <div className="hidden lg:block lg:sticky lg:top-4 space-y-6">
+        <div className="hidden lg:block lg:sticky lg:top-4 space-y-7">
           {/* You owe / Pay now — desktop: in rail so main column stays add item → items */}
           {personalCard && (
             <section className="min-w-0">
@@ -1555,8 +1708,8 @@ export default function SessionClient({
             </section>
           )}
           <section>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Bill</h2>
-            <div className="rounded-2xl border border-slate-200/80 bg-white/90 backdrop-blur-xl shadow-md p-4 space-y-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Bill</h2>
+            <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[var(--shadow-card)] p-4 space-y-4">
               <BillSummaryCard
                 subtotal={billSummary.subtotal}
                 claimedTotal={billSummary.claimedTotal}
@@ -1579,28 +1732,27 @@ export default function SessionClient({
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Live totals</h2>
-            <div className="rounded-2xl border border-slate-200/80 bg-white/90 backdrop-blur-xl shadow-md divide-y divide-slate-100 overflow-hidden">
-              {participants.map(p => (
-                <div
-                  key={p.id}
-                  className="flex justify-between items-center px-4 py-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-7 h-7 rounded-full text-white text-xs flex items-center justify-center ${getAvatarColor(
-                        p.id
-                      )}`}
-                    >
-                      {p.name.charAt(0).toUpperCase()}
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Live totals</h2>
+            <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[var(--shadow-card)] divide-y divide-slate-50 overflow-hidden">
+              {participants.map(p => {
+                const amount = totals[p.id] ?? 0;
+                return (
+                  <div key={p.id} className="flex justify-between items-center px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className="w-7 h-7 rounded-full text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: getParticipantColor(p.name) }}
+                      >
+                        {getInitials(p.name)}
+                      </div>
+                      <span className="text-sm font-medium text-slate-800">{p.name}</span>
                     </div>
-                    <span>{p.name}</span>
+                    <span className={`text-sm font-bold tabular-nums transition-all duration-300 ${amount > 0.005 ? "text-[var(--accent)]" : "text-slate-500"}`}>
+                      ${amount.toFixed(2)}
+                    </span>
                   </div>
-                  <span className="font-semibold transition-all duration-300">
-                    ${totals[p.id].toFixed(2)}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
 
@@ -1628,10 +1780,10 @@ export default function SessionClient({
         </div>
 
         {/* Mobile: bill, live totals, settlement below items (same order, full width) */}
-        <div className="lg:hidden space-y-6 mt-6">
+        <div className="lg:hidden space-y-7 mt-7">
           <section>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Bill</h2>
-            <div className="rounded-2xl border border-white/80 bg-white/80 backdrop-blur-xl shadow-md p-4 space-y-4">
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Bill</h2>
+            <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[var(--shadow-card)] p-4 space-y-4">
               <BillSummaryCard
                 subtotal={billSummary.subtotal}
                 claimedTotal={billSummary.claimedTotal}
@@ -1654,28 +1806,27 @@ export default function SessionClient({
           </section>
 
           <section>
-            <h2 className="text-lg font-semibold text-slate-900 mb-2">Live totals</h2>
-            <div className="rounded-2xl border border-white/80 bg-white/80 backdrop-blur-xl shadow-md divide-y divide-slate-100 overflow-hidden">
-              {participants.map(p => (
-                <div
-                  key={p.id}
-                  className="flex justify-between items-center px-4 py-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`w-7 h-7 rounded-full text-white text-xs flex items-center justify-center ${getAvatarColor(
-                        p.id
-                      )}`}
-                    >
-                      {p.name.charAt(0).toUpperCase()}
+            <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-2">Live totals</h2>
+            <div className="rounded-2xl border border-slate-200/80 bg-white shadow-[var(--shadow-card)] divide-y divide-slate-50 overflow-hidden">
+              {participants.map(p => {
+                const amount = totals[p.id] ?? 0;
+                return (
+                  <div key={p.id} className="flex justify-between items-center px-4 py-3">
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className="w-7 h-7 rounded-full text-white text-[11px] font-bold flex items-center justify-center flex-shrink-0"
+                        style={{ backgroundColor: getParticipantColor(p.name) }}
+                      >
+                        {getInitials(p.name)}
+                      </div>
+                      <span className="text-sm font-medium text-slate-800">{p.name}</span>
                     </div>
-                    <span>{p.name}</span>
+                    <span className={`text-sm font-bold tabular-nums transition-all duration-300 ${amount > 0.005 ? "text-[var(--accent)]" : "text-slate-500"}`}>
+                      ${amount.toFixed(2)}
+                    </span>
                   </div>
-                  <span className="font-semibold transition-all duration-300">
-                    ${totals[p.id].toFixed(2)}
-                  </span>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
 

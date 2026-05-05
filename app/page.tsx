@@ -109,18 +109,20 @@ export default function Home() {
           <p className="text-xs font-semibold uppercase tracking-widest text-slate-400 text-center mb-6">
             How it works
           </p>
-          <div className="grid grid-cols-3 gap-4 sm:gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8">
             {[
               { step: "1", title: "Create", desc: "Start a split in seconds — restaurant or general" },
               { step: "2", title: "Share", desc: "Send the link or 5-character code to your group" },
               { step: "3", title: "Everyone pays", desc: "Each person claims their items and pays the host" },
             ].map(({ step, title, desc }) => (
-              <div key={step} className="text-center space-y-2">
-                <div className="w-9 h-9 rounded-full bg-teal-100 text-teal-700 font-bold text-sm flex items-center justify-center mx-auto">
+              <div key={step} className="flex sm:flex-col items-center sm:items-center gap-4 sm:gap-2 text-left sm:text-center">
+                <div className="w-9 h-9 rounded-full bg-teal-100 text-teal-700 font-bold text-sm flex items-center justify-center flex-shrink-0">
                   {step}
                 </div>
-                <p className="text-sm font-semibold text-slate-800">{title}</p>
-                <p className="text-xs text-slate-500 leading-relaxed hidden sm:block">{desc}</p>
+                <div className="sm:space-y-1 min-w-0">
+                  <p className="text-sm font-semibold text-slate-800">{title}</p>
+                  <p className="text-xs text-slate-500 leading-relaxed">{desc}</p>
+                </div>
               </div>
             ))}
           </div>

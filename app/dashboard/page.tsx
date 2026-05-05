@@ -143,16 +143,16 @@ export default async function DashboardPage() {
   return (
     <main className="flex-1 px-4 py-8 max-w-3xl mx-auto w-full space-y-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-[var(--text)] tracking-tight">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <h1 className="text-xl sm:text-2xl font-bold text-[var(--text)] tracking-tight truncate">
             Hey, {displayName} 👋
           </h1>
           <p className="text-sm text-[var(--text-muted)] mt-0.5">Your splits and running tabs</p>
         </div>
         <Link
           href="/create"
-          className="min-h-[44px] px-4 flex items-center rounded-xl bg-[var(--accent)] text-white text-sm font-semibold hover:bg-[var(--accent-dark)] active:scale-[0.98] transition-all shadow-[0_2px_8px_rgba(13,148,136,0.2)]"
+          className="shrink-0 min-h-[44px] px-4 flex items-center rounded-xl bg-[var(--accent)] text-white text-sm font-semibold hover:bg-[var(--accent-dark)] active:scale-[0.98] transition-all shadow-[0_2px_8px_rgba(13,148,136,0.2)]"
         >
           + New split
         </Link>

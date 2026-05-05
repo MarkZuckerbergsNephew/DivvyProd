@@ -745,10 +745,10 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
                     disabled={!isHost}
                     className={`text-left min-w-0 ${isHost ? "group cursor-pointer" : "cursor-default"}`}
                   >
-                    <h1 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2 flex-wrap">
-                      {sessionTitle}
+                    <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight flex items-center gap-2 flex-wrap min-w-0">
+                      <span className="truncate max-w-[180px] sm:max-w-none">{sessionTitle}</span>
                       {isHost && (
-                        <span className="inline-flex items-center gap-1 text-xs font-normal text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span className="hidden sm:inline-flex items-center gap-1 text-xs font-normal text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                           </svg>
@@ -775,13 +775,13 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
           </div>
 
           {/* Tab nav */}
-          <div className="flex border-b border-slate-200 -mx-4 px-4">
+          <div className="flex border-b border-slate-200 -mx-4 px-1">
             {TABS.map((tab) => (
               <button
                 key={tab.id}
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 py-2.5 text-sm font-semibold transition-all border-b-2 -mb-px ${
+                className={`flex-1 py-2.5 text-xs sm:text-sm font-semibold transition-all border-b-2 -mb-px whitespace-nowrap px-1 ${
                   activeTab === tab.id
                     ? "border-[var(--accent)] text-[var(--accent)]"
                     : "border-transparent text-[var(--text-muted)] hover:text-slate-700"
@@ -853,7 +853,7 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
                       onKeyDown={(e) => {
                         if (e.key === "Enter") { e.preventDefault(); priceInputRef.current?.focus(); }
                       }}
-                      className="flex-1 min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white/90 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
+                      className="flex-1 min-w-0 min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white/90 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
                     />
                     <input
                       ref={priceInputRef}
@@ -861,13 +861,13 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
                       value={addPrice}
                       onChange={(e) => setAddPrice(e.target.value)}
                       onKeyDown={(e) => { if (e.key === "Enter") addItem(); }}
-                      className="w-20 min-h-[48px] px-3 rounded-xl border border-slate-200 bg-white/90 text-center placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
+                      className="w-16 sm:w-20 min-h-[48px] px-2 sm:px-3 rounded-xl border border-slate-200 bg-white/90 text-center placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
                     />
                     <button
                       type="button"
                       onClick={addItem}
                       disabled={addingItem || !addName.trim() || !addPrice}
-                      className="min-h-[48px] px-4 rounded-xl bg-slate-900 text-white font-medium active:scale-[0.98] transition-transform hover:bg-slate-800 disabled:opacity-40"
+                      className="min-h-[48px] px-3 sm:px-4 rounded-xl bg-slate-900 text-white font-medium active:scale-[0.98] transition-transform hover:bg-slate-800 disabled:opacity-40 shrink-0"
                     >
                       {addingItem ? (
                         <span className="w-4 h-4 rounded-full border-2 border-white/40 border-t-white animate-spin inline-block" />
