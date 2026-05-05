@@ -1,8 +1,19 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 
 export default function AnimatedBackground() {
+  // Default true so SSR/hydration renders static blobs; updated on mount
+  const [isMobile, setIsMobile] = useState(true);
+
+  useEffect(() => {
+    setIsMobile(window.innerWidth < 768);
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   return (
     <div
       className="fixed inset-0 z-0 bg-app-canvas bg-app-dots overflow-hidden"
@@ -11,64 +22,45 @@ export default function AnimatedBackground() {
       {/* Animated gradient layer */}
       <div className="absolute inset-0 bg-app-glow animate-gradient-drift" />
 
-      {/* Floating blobs — slow, subtle motion */}
-      <motion.div
-        className="absolute rounded-full bg-teal-200/30 blur-3xl"
-        style={{
-          width: "min(80vw, 400px)",
-          height: "min(80vw, 400px)",
-          left: "10%",
-          top: "15%",
-        }}
-        animate={{
-          x: [0, 30, -20, 0],
-          y: [0, -25, 15, 0],
-          scale: [1, 1.08, 0.95, 1],
-        }}
-        transition={{
-          duration: 25,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
-      />
-      <motion.div
-        className="absolute rounded-full bg-slate-200/25 blur-3xl"
-        style={{
-          width: "min(60vw, 280px)",
-          height: "min(60vw, 280px)",
-          right: "5%",
-          bottom: "20%",
-        }}
-        animate={{
-          x: [0, -40, 25, 0],
-          y: [0, 20, -15, 0],
-          scale: [1, 0.92, 1.05, 1],
-        }}
-        transition={{
-          duration: 28,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
-      />
-      <motion.div
-        className="absolute rounded-full bg-teal-100/40 blur-3xl"
-        style={{
-          width: "min(50vw, 220px)",
-          height: "min(50vw, 220px)",
-          left: "30%",
-          top: "55%",
-        }}
-        animate={{
-          x: [0, 25, -20, 0],
-          y: [0, -20, 25, 0],
-          scale: [1, 1.1, 0.9, 1],
-        }}
-        transition={{
-          duration: 22,
-          repeat: Infinity,
-          ease: "easeInOut",
-        }}
-      />
+      {isMobile ? (
+        /* Static blobs on mobile — no GPU-draining animation */
+        <>
+          <div
+            className="absolute rounded-full bg-teal-200/30 blur-3xl"
+            style={{ width: "min(80vw, 400px)", height: "min(80vw, 400px)", left: "10%", top: "15%" }}
+          />
+          <div
+            className="absolute rounded-full bg-slate-200/25 blur-3xl"
+            style={{ width: "min(60vw, 280px)", height: "min(60vw, 280px)", right: "5%", bottom: "20%" }}
+          />
+          <div
+            className="absolute rounded-full bg-teal-100/40 blur-3xl"
+            style={{ width: "min(50vw, 220px)", height: "min(50vw, 220px)", left: "30%", top: "55%" }}
+          />
+        </>
+      ) : (
+        /* Animated blobs on desktop */
+        <>
+          <motion.div
+            className="absolute rounded-full bg-teal-200/30 blur-3xl"
+            style={{ width: "min(80vw, 400px)", height: "min(80vw, 400px)", left: "10%", top: "15%" }}
+            animate={{ x: [0, 30, -20, 0], y: [0, -25, 15, 0], scale: [1, 1.08, 0.95, 1] }}
+            transition={{ duration: 25, repeat: Infinity, ease: "easeInOut" }}
+          />
+          <motion.div
+            className="absolute rounded-full bg-slate-200/25 blur-3xl"
+            style={{ width: "min(60vw, 280px)", height: "min(60vw, 280px)", right: "5%", bottom: "20%" }}
+            animate={{ x: [0, -40, 25, 0], y: [0, 20, -15, 0], scale: [1, 0.92, 1.05, 1] }}
+            transition={{ duration: 28, repeat: Infinity, ease: "easeInOut" }}
+          />
+          <motion.div
+            className="absolute rounded-full bg-teal-100/40 blur-3xl"
+            style={{ width: "min(50vw, 220px)", height: "min(50vw, 220px)", left: "30%", top: "55%" }}
+            animate={{ x: [0, 25, -20, 0], y: [0, -20, 25, 0], scale: [1, 1.1, 0.9, 1] }}
+            transition={{ duration: 22, repeat: Infinity, ease: "easeInOut" }}
+          />
+        </>
+      )}
     </div>
   );
 }

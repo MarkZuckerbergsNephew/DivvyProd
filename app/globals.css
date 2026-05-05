@@ -159,3 +159,14 @@ textarea::placeholder {
 .animate-slide-in {
   animation: slide-in 0.3s ease-out forwards;
 }
+
+/* Mobile performance: disable backdrop-blur (GPU-intensive on older phones) */
+@media (max-width: 768px) {
+  .backdrop-blur-xl,
+  .backdrop-blur-md,
+  .backdrop-blur-sm {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+    background-color: rgba(255, 255, 255, 0.98) !important;
+  }
+}

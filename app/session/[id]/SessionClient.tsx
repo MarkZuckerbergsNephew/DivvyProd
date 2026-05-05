@@ -7,6 +7,7 @@ import { calculateTotals } from "@/lib/billMath";
 import { useSessionRealtime } from "@/hooks/useSessionRealtime";
 import { useToast } from "@/hooks/useToast";
 import { motion } from "framer-motion";
+import OnboardingOverlay from "@/components/OnboardingOverlay";
 import ShareSheet from "@/components/ShareSheet";
 import { getParticipantColor, getInitials } from "@/lib/participantColor";
 import {
@@ -1583,11 +1584,12 @@ export default function SessionClient({
 
           {/* Add item — full width */}
           <div
+            data-onboarding="add-item"
             className={`space-y-2 transition-all ${
               focusSection === "input" ? "scale-[1.01]" : "opacity-90"
             }`}
           >
-            <div className="flex gap-2">
+            <div className="flex gap-1.5">
               <input
                 ref={itemInputRef}
                 placeholder="Item name"
@@ -1599,7 +1601,7 @@ export default function SessionClient({
                     priceInputRef.current?.focus();
                   }
                 }}
-                className="flex-1 min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white/90 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
+                className="flex-1 min-w-0 min-h-[48px] px-4 rounded-xl border border-slate-200 bg-white/90 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
               />
               <input
                 ref={priceInputRef}
@@ -1609,12 +1611,12 @@ export default function SessionClient({
                 onKeyDown={e => {
                   if (e.key === "Enter") addItem();
                 }}
-                className="w-20 min-h-[48px] px-3 rounded-xl border border-slate-200 bg-white/90 text-center placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500"
+                className="w-16 sm:w-20 min-h-[48px] px-2 sm:px-3 rounded-xl border border-slate-200 bg-white/90 text-center placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500/50 focus:border-teal-500 shrink-0"
               />
               <button
                 type="button"
                 onClick={addItem}
-                className="min-h-[48px] px-4 rounded-xl bg-slate-900 text-white font-medium active:scale-[0.98] transition-transform hover:bg-slate-800"
+                className="shrink-0 min-h-[48px] px-3 rounded-xl bg-slate-900 text-white font-medium active:scale-[0.98] transition-transform hover:bg-slate-800"
               >
                 Add
               </button>
@@ -1622,14 +1624,13 @@ export default function SessionClient({
                 <button
                   type="button"
                   onClick={() => setShowScanModal(true)}
-                  className="min-h-[48px] px-3 sm:px-4 rounded-xl border border-slate-200 bg-white/90 font-medium text-slate-600 active:scale-[0.98] transition-transform hover:bg-slate-50 shrink-0 flex items-center gap-1.5"
+                  className="shrink-0 min-h-[48px] w-10 rounded-xl border border-slate-200 bg-white/90 text-slate-600 active:scale-[0.98] transition-transform hover:bg-slate-50 flex items-center justify-center"
                   title="Scan receipt"
                 >
-                  <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.192 2.192 0 00-1.736-1.039 48.774 48.774 0 00-5.232 0 2.192 2.192 0 00-1.736 1.039l-.821 1.316z" />
                     <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z" />
                   </svg>
-                  <span className="hidden sm:inline">Scan receipt</span>
                 </button>
               )}
             </div>
@@ -1676,7 +1677,7 @@ export default function SessionClient({
           )}
 
           {/* Items — main list */}
-          <section className="lg:mr-0">
+          <section data-onboarding="item-list" className="lg:mr-0">
             <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">Items</h2>
             <ItemList
               items={items}
@@ -2146,6 +2147,43 @@ export default function SessionClient({
           joinCode={joinCode}
         />
       )}
+
+      <OnboardingOverlay
+        storageKey="divvy_onboarded"
+        ready={participantId !== null && hostParticipantId !== null}
+        steps={
+          isHost
+            ? [
+                {
+                  selector: "[data-onboarding='add-item']",
+                  text: "Add everything from your bill here, one item at a time — or scan your receipt to add everything at once.",
+                  placement: "below",
+                },
+                {
+                  selector: "[data-onboarding='item-list']",
+                  text: "Tap an item to claim what you ordered. Split items with others by tapping again.",
+                  placement: "below",
+                },
+                {
+                  selector: "[data-onboarding='bottom-bar']",
+                  text: "When everyone's done claiming, settle up instantly with Venmo or CashApp.",
+                  placement: "above",
+                },
+              ]
+            : [
+                {
+                  selector: "[data-onboarding='item-list']",
+                  text: "Tap items to claim what you ordered. You can split items with others.",
+                  placement: "below",
+                },
+                {
+                  selector: "[data-onboarding='bottom-bar']",
+                  text: "Your total updates automatically — settle up when everyone's ready.",
+                  placement: "above",
+                },
+              ]
+        }
+      />
     </SessionShell>
   );
 }
