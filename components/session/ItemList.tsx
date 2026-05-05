@@ -113,17 +113,13 @@ export default function ItemList({
 
   if (items.length === 0) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="rounded-2xl border border-slate-200/80 bg-white/90 backdrop-blur-xl p-12 text-center shadow-[var(--shadow-card)]"
-      >
+      <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-[var(--shadow-card)]">
         <div className="text-5xl mb-4 opacity-80">🍽️</div>
         <p className="font-semibold text-slate-800 text-lg">No items yet</p>
         <p className="text-slate-500 text-sm mt-1">
           Add items above to start splitting the bill
         </p>
-      </motion.div>
+      </div>
     );
   }
 
@@ -204,11 +200,8 @@ export default function ItemList({
 
           if (isEditingThis) {
             return (
-              <motion.li
+              <li
                 key={item.id}
-                layout
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
                 className="rounded-xl border border-teal-300 bg-white shadow-[var(--shadow-card)] overflow-hidden"
               >
                 <div className="flex items-center gap-2 px-3 py-3">
@@ -257,17 +250,13 @@ export default function ItemList({
                     ✕
                   </button>
                 </div>
-              </motion.li>
+              </li>
             );
           }
 
           return (
-            <motion.li
+            <li
               key={item.id}
-              layout
-              initial={{ opacity: 0, y: 12 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: Math.min(index * 0.04, 0.2), type: "spring", stiffness: 400, damping: 30 }}
               onClick={(e) => {
                 if (isBusy) return;
                 if ((e.target as HTMLElement).closest("button")) return;
@@ -447,7 +436,7 @@ export default function ItemList({
                   )}
                 </div>
               </div>
-            </motion.li>
+            </li>
           );
         })}
       </ul>

@@ -16,7 +16,7 @@ export default function SplitProgress({
   sessionStage,
 }: Props) {
   return (
-    <div className="w-full min-w-0 rounded-2xl border border-white/80 bg-white/80 backdrop-blur-xl p-4 shadow-md space-y-3">
+    <div className="w-full min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-[var(--shadow-card)] space-y-3">
       <div className="flex items-center justify-between text-sm">
         <span className="font-semibold text-slate-800">Split progress</span>
         <span className="rounded-full bg-teal-100 text-teal-700 px-2.5 py-1 font-medium">

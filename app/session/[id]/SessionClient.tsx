@@ -1272,7 +1272,7 @@ export default function SessionClient({
     // viewer owes money
     if (viewerOwesMoney && !viewerIsDone) {
       return (
-        <div className="rounded-2xl border border-slate-200/80 bg-white/90 backdrop-blur-xl shadow-md p-5 space-y-4">
+        <div className="rounded-2xl border border-slate-200 bg-white shadow-[var(--shadow-card)] p-5 space-y-4">
           <p className="text-sm font-medium text-slate-600">
             You owe {viewerSettlement!.to}
           </p>
@@ -2155,31 +2155,31 @@ export default function SessionClient({
           isHost
             ? [
                 {
-                  selector: "[data-onboarding='add-item']",
-                  text: "Add everything from your bill here, one item at a time — or scan your receipt to add everything at once.",
-                  placement: "below",
+                  icon: "🍔",
+                  title: "Add your items",
+                  description: "Type each item from your bill and tap Add, or scan your receipt to add everything at once.",
                 },
                 {
-                  selector: "[data-onboarding='item-list']",
-                  text: "Tap an item to claim what you ordered. Split items with others by tapping again.",
-                  placement: "below",
+                  icon: "👆",
+                  title: "Claim what you ordered",
+                  description: "Tap any item to claim it. Split items are divided automatically.",
                 },
                 {
-                  selector: "[data-onboarding='bottom-bar']",
-                  text: "When everyone's done claiming, settle up instantly with Venmo or CashApp.",
-                  placement: "above",
+                  icon: "💸",
+                  title: "Settle up instantly",
+                  description: "When everyone's claimed their items, tap Settle Up to pay via Venmo or CashApp.",
                 },
               ]
             : [
                 {
-                  selector: "[data-onboarding='item-list']",
-                  text: "Tap items to claim what you ordered. You can split items with others.",
-                  placement: "below",
+                  icon: "👆",
+                  title: "Tap to claim",
+                  description: "Tap any item you ordered to claim your share. You can split items too.",
                 },
                 {
-                  selector: "[data-onboarding='bottom-bar']",
-                  text: "Your total updates automatically — settle up when everyone's ready.",
-                  placement: "above",
+                  icon: "💸",
+                  title: "You're all set",
+                  description: "Your total is calculated automatically. Pay when everyone's ready.",
                 },
               ]
         }

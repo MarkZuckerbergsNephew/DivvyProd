@@ -108,7 +108,7 @@ export default function SettlementPanel({
         />
       </div>
 
-      <div className="rounded-2xl border border-slate-200/80 bg-white/90 backdrop-blur-xl shadow-md divide-y divide-slate-100 overflow-hidden">
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-[var(--shadow-card)] divide-y divide-slate-100 overflow-hidden">
         {settlements.map((s, i) => {
           const viewerIsDebtor = participantId === s.fromId;
           const isPaid = paidIds.includes(s.fromId);

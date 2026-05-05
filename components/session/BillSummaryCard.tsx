@@ -60,7 +60,7 @@ export default function BillSummaryCard({
   );
   if (inline) return <div className="space-y-3.5">{content}</div>;
   return (
-    <div className="rounded-2xl border border-white/80 bg-white/80 backdrop-blur-xl p-4 shadow-md space-y-3">
+    <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-[var(--shadow-card)] space-y-3">
       {content}
     </div>
   );

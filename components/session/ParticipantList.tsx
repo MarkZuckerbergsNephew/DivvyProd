@@ -28,7 +28,7 @@ export default function ParticipantList({
   if (participants.length === 0) return null;
 
   return (
-    <div className="w-full min-w-0 rounded-2xl border border-white/80 bg-white/80 backdrop-blur-xl p-4 shadow-[var(--shadow-card)]">
+    <div className="w-full min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-[var(--shadow-card)]">
       <div className="flex items-center justify-between gap-3 mb-3">
         <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
           {participants.length} {participants.length === 1 ? "person" : "people"}

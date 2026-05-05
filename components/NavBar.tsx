@@ -63,7 +63,7 @@ export default function NavBar() {
   const avatarInitials = avatarName ? getInitials(avatarName) : "?";
 
   return (
-    <nav className="w-full border-b border-[var(--border)] bg-white sm:bg-white/90 sm:backdrop-blur-xl supports-[padding:env(safe-area-inset-top)]:pt-[env(safe-area-inset-top)] relative z-30">
+    <nav className="w-full border-b border-[var(--border)] bg-white supports-[padding:env(safe-area-inset-top)]:pt-[env(safe-area-inset-top)] relative z-30">
       <div className="max-w-[480px] md:max-w-4xl lg:max-w-6xl mx-auto px-4 py-3 flex justify-between items-center min-h-[48px]">
         <button
           type="button"

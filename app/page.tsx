@@ -54,7 +54,7 @@ export default function Home() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45, delay: 0.1, ease: [0.25, 0.46, 0.45, 0.94] }}
           >
-            <div className="rounded-2xl border border-slate-200/90 bg-white/95 backdrop-blur-sm p-6 sm:p-8 space-y-5 shadow-[var(--shadow-card)] animate-idle-shimmer">
+            <div className="rounded-2xl border border-slate-200 bg-white p-6 sm:p-8 space-y-5 shadow-[var(--shadow-card)] animate-idle-shimmer">
               <button
                 type="button"
                 onClick={() => router.push("/create")}

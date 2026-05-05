@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { supabase } from "@/lib/supabase-browser";
 import { useSessionRealtime } from "@/hooks/useSessionRealtime";
 import { useToast } from "@/hooks/useToast";
@@ -812,15 +812,7 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
         </div>
       }
     >
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={activeTab}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          transition={{ duration: 0.15 }}
-          className="space-y-5 pb-12"
-        >
+      <div className="space-y-5 pb-12">
           {/* ─── EXPENSES TAB ─── */}
           {activeTab === "expenses" && (
             <>
@@ -1092,8 +1084,7 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
               onLeave={handleLeave}
             />
           )}
-        </motion.div>
-      </AnimatePresence>
+      </div>
 
       {/* ─── Settle up sheet ─── */}
       <SettleUpSheet
