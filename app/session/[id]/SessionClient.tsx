@@ -565,20 +565,73 @@ export default function SessionClient({
     itemInputRef.current?.focus();
   }
 
-  async function addItemsFromScan(items: { name: string; price: number }[]) {
+  async function addItemsFromScan({
+    items,
+    tax,
+    tip,
+  }: {
+    items: { name: string; price: number }[];
+    tax: number;
+    tip: number;
+  }) {
     if (status === "completed") return;
-    for (const it of items) {
-      const { error } = await supabase.from("items").insert({
+    const { error } = await supabase.from("items").insert(
+      items.map((it) => ({
         session_id: sessionId,
         name: it.name.trim(),
         price: it.price,
-      });
-      if (error) throw error;
+      }))
+    );
+    if (error) throw error;
+    await fetchItems();
+
+    let autoFilled = false;
+
+    async function applyTax(value: number) {
+      setTaxInput(String(value));
+      await supabase.from("sessions").update({ tax_amount: value }).eq("id", sessionId);
     }
-    fetchItems();
+
+    async function applyTip(value: number) {
+      setTipInput(String(value));
+      await supabase.from("sessions").update({ tip_amount: value }).eq("id", sessionId);
+    }
+
+    if (tax > 0) {
+      if (taxAmount > 0) {
+        toast.confirm(`New tax detected ($${tax.toFixed(2)}). Update?`, {
+          label: "Update",
+          onClick: () => { applyTax(tax); },
+        });
+      } else {
+        await applyTax(tax);
+        autoFilled = true;
+      }
+    }
+
+    if (tip > 0) {
+      if (tipAmount > 0) {
+        toast.confirm(`New tip detected ($${tip.toFixed(2)}). Update?`, {
+          label: "Update",
+          onClick: () => { applyTip(tip); },
+        });
+      } else {
+        await applyTip(tip);
+        autoFilled = true;
+      }
+    }
+
+    if (autoFilled) {
+      toast.success("Receipt scanned — tax and tip auto-filled");
+    }
   }
 
-  async function extractItemsFromFile(file: File): Promise<{ name: string; price: number }[]> {
+  async function extractItemsFromFile(
+    file: File
+  ): Promise<{ items: { name: string; price: number }[]; tax: number; tip: number }> {
+    if (file.size > 4 * 1024 * 1024) {
+      throw new Error("Image too large. Please use a photo under 4 MB.");
+    }
     const formData = new FormData();
     formData.set("image", file);
     const res = await fetch("/api/ocr", {
@@ -590,7 +643,11 @@ export default function SessionClient({
       throw new Error(data.error ?? "Failed to read receipt");
     }
     const data = await res.json();
-    return Array.isArray(data.items) ? data.items : [];
+    return {
+      items: Array.isArray(data.items) ? data.items : [],
+      tax: typeof data.tax === "number" ? data.tax : 0,
+      tip: typeof data.tip === "number" ? data.tip : 0,
+    };
   }
 
   async function updateSessionTitle() {

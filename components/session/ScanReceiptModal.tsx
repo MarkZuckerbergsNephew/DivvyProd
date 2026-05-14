@@ -4,13 +4,14 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { motion } from "framer-motion";
 
 export type ScannedItem = { name: string; price: number };
+export type ScannedReceipt = { items: ScannedItem[]; tax: number; tip: number };
 
 type Props = {
   isOpen: boolean;
   onClose: () => void;
-  onAddItems: (items: ScannedItem[]) => Promise<void>;
-  /** Called with the image file; returns extracted items. Stubbed or real OCR. */
-  onExtractItems: (file: File) => Promise<ScannedItem[]>;
+  onAddItems: (receipt: ScannedReceipt) => Promise<void>;
+  /** Called with the image file; returns extracted items plus detected tax/tip. */
+  onExtractItems: (file: File) => Promise<ScannedReceipt>;
 };
 
 export default function ScanReceiptModal({
@@ -22,6 +23,8 @@ export default function ScanReceiptModal({
   const [step, setStep] = useState<"capture" | "review">("capture");
   const [captureMode, setCaptureMode] = useState<"choose" | "camera">("choose");
   const [items, setItems] = useState<ScannedItem[]>([]);
+  const [detectedTax, setDetectedTax] = useState(0);
+  const [detectedTip, setDetectedTip] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -40,6 +43,8 @@ export default function ScanReceiptModal({
       setStep("capture");
       setCaptureMode("choose");
       setItems([]);
+      setDetectedTax(0);
+      setDetectedTip(0);
       setError(null);
     }
     return () => stopCamera();
@@ -58,6 +63,8 @@ export default function ScanReceiptModal({
     setStep("capture");
     setCaptureMode("choose");
     setItems([]);
+    setDetectedTax(0);
+    setDetectedTip(0);
     setError(null);
     onClose();
   }
@@ -111,8 +118,10 @@ export default function ScanReceiptModal({
     setError(null);
     setLoading(true);
     onExtractItems(file)
-      .then((extracted) => {
+      .then(({ items: extracted, tax, tip }) => {
         setItems(extracted.length > 0 ? extracted : [{ name: "", price: 0 }]);
+        setDetectedTax(tax);
+        setDetectedTip(tip);
         setStep("review");
       })
       .catch((err) =>
@@ -126,7 +135,7 @@ export default function ScanReceiptModal({
     if (valid.length === 0) return;
     setError(null);
     setLoading(true);
-    onAddItems(valid)
+    onAddItems({ items: valid, tax: detectedTax, tip: detectedTip })
       .then(() => handleClose())
       .catch((err) =>
         setError(err instanceof Error ? err.message : "Failed to add items. Try again.")
@@ -278,6 +287,16 @@ export default function ScanReceiptModal({
           {step === "review" && (
             <>
               <p className="text-sm text-slate-600">Edit items below, then add them to the split.</p>
+              {(detectedTax > 0 || detectedTip > 0) && (
+                <div className="flex flex-col gap-1 px-3 py-2.5 bg-teal-50 border border-teal-100 rounded-xl text-sm text-teal-800">
+                  {detectedTax > 0 && (
+                    <span>Tax detected: <strong>${detectedTax.toFixed(2)}</strong> — will be auto-filled</span>
+                  )}
+                  {detectedTip > 0 && (
+                    <span>Tip detected: <strong>${detectedTip.toFixed(2)}</strong> — will be auto-filled</span>
+                  )}
+                </div>
+              )}
               <ul className="space-y-2">
                 {items.map((item, index) => (
                   <li

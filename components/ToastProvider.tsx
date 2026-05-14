@@ -5,16 +5,23 @@ import { motion, AnimatePresence } from "framer-motion";
 
 type ToastType = "success" | "error" | "info";
 
+interface ToastAction {
+  label: string;
+  onClick: () => void;
+}
+
 interface Toast {
   id: string;
   type: ToastType;
   message: string;
+  action?: ToastAction;
 }
 
 export interface ToastContextValue {
   success: (message: string) => void;
   error: (message: string) => void;
   info: (message: string) => void;
+  confirm: (message: string, action: ToastAction) => void;
 }
 
 export const ToastContext = createContext<ToastContextValue | null>(null);
@@ -50,10 +57,10 @@ export default function ToastProvider({ children }: { children: React.ReactNode 
     timers.current.delete(id);
   }, []);
 
-  const addToast = useCallback((type: ToastType, message: string) => {
+  const addToast = useCallback((type: ToastType, message: string, action?: ToastAction) => {
     const id = crypto.randomUUID();
     setToasts(prev => {
-      const next = [...prev, { id, type, message }];
+      const next = [...prev, { id, type, message, action }];
       // drop oldest if over limit
       if (next.length > MAX_TOASTS) {
         const dropped = next.shift()!;
@@ -71,6 +78,7 @@ export default function ToastProvider({ children }: { children: React.ReactNode 
     success: (msg) => addToast("success", msg),
     error: (msg) => addToast("error", msg),
     info: (msg) => addToast("info", msg),
+    confirm: (msg, action) => addToast("info", msg, action),
   };
 
   return (
@@ -96,6 +104,15 @@ export default function ToastProvider({ children }: { children: React.ReactNode 
                 {ICONS[t.type]}
               </span>
               <span className="flex-1 leading-snug">{t.message}</span>
+              {t.action && (
+                <button
+                  type="button"
+                  onClick={() => { t.action!.onClick(); dismiss(t.id); }}
+                  className="flex-shrink-0 px-2 py-0.5 rounded-md bg-slate-900/10 hover:bg-slate-900/20 text-xs font-semibold transition-colors whitespace-nowrap"
+                >
+                  {t.action.label}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => dismiss(t.id)}

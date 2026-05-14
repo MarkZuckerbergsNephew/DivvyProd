@@ -21,6 +21,13 @@ function getVisionClient(): ImageAnnotatorClient {
 }
 
 export async function POST(request: Request) {
+  if (!process.env.GOOGLE_SERVICE_ACCOUNT_JSON) {
+    return NextResponse.json(
+      { error: "Receipt scanning is not configured yet. Please add items manually." },
+      { status: 503 }
+    );
+  }
+
   try {
     const formData = await request.formData();
     const file = formData.get("image") as File | null;
@@ -49,9 +56,9 @@ export async function POST(request: Request) {
     });
 
     const fullText = result?.fullTextAnnotation?.text ?? "";
-    const items = parseReceiptText(fullText);
+    const { items, tax, tip } = parseReceiptText(fullText);
 
-    return NextResponse.json({ items });
+    return NextResponse.json({ items, tax, tip });
   } catch (e) {
     console.error("OCR route error:", e);
     const message =
