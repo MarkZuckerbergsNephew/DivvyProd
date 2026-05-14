@@ -36,6 +36,7 @@ type Claim = {
   item_id: string;
   participant_id: string;
   amount: number | null;
+  locked?: boolean;
 };
 
 type Participant = {
@@ -458,46 +459,70 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
     const entered = Number(amountInput || 0);
     if (isNaN(entered) || entered < 0) { toast.error("Enter a valid amount."); return; }
 
-    const { data: dbClaims } = await supabase
-      .from("claims")
-      .select("id, amount")
-      .eq("item_id", editingClaim.item_id);
-
-    if (!dbClaims) return;
-
-    const usedByOthers = dbClaims
-      .filter((c) => c.id !== editingClaim.id)
-      .reduce((sum, c) => sum + (c.amount ?? 0), 0);
-    const maxAllowed = (item.price ?? 0) - usedByOthers;
-
-    if (entered > maxAllowed + 0.005) {
-      toast.error(`Only $${maxAllowed.toFixed(2)} available for your share.`);
+    if (entered > (item.price ?? 0) + 0.005) {
+      toast.error(`Amount can't exceed item total $${(item.price ?? 0).toFixed(2)}.`);
       return;
     }
 
     const { error } = await supabase
       .from("claims")
-      .update({ amount: entered })
+      .update({ amount: entered, locked: true })
       .eq("id", editingClaim.id);
 
     if (error) { toast.error("Couldn't save amount. Please try again."); return; }
 
     setEditingClaim(null);
     setAmountInput("");
+    await redistributeClaims(editingClaim.item_id);
     await fetchClaims();
   }
 
   /* ── Toggle claim ── */
 
+  function roundMoney(n: number) {
+    return Math.round(n * 100) / 100;
+  }
+
   async function redistributeClaims(itemId: string) {
     const item = items.find((i) => i.id === itemId);
     if (!item || item.price == null) return;
-    const { data: current } = await supabase.from("claims").select("id").eq("item_id", itemId);
-    if (!current || current.length === 0) return;
-    const even = Math.round((item.price / current.length) * 100) / 100;
+
+    const { data: claimRows } = await supabase
+      .from("claims")
+      .select("id, amount, locked")
+      .eq("item_id", itemId);
+
+    if (!claimRows || claimRows.length === 0) return;
+
+    const locked = claimRows.filter((c) => c.locked);
+    const unlocked = claimRows.filter((c) => !c.locked);
+
+    if (unlocked.length === 0) return;
+
+    const lockedSum = locked.reduce((s, c) => s + (c.amount ?? 0), 0);
+    const remainder = Math.max(0, roundMoney(item.price - lockedSum));
+    const evenShare = roundMoney(remainder / unlocked.length);
+    const distributed = roundMoney(evenShare * unlocked.length);
+    const delta = roundMoney(remainder - distributed);
+
     await Promise.all(
-      current.map((c) => supabase.from("claims").update({ amount: even }).eq("id", c.id)),
+      unlocked.map((c, i) =>
+        supabase
+          .from("claims")
+          .update({ amount: i === 0 ? roundMoney(evenShare + delta) : evenShare })
+          .eq("id", c.id),
+      ),
     );
+  }
+
+  async function resetToEvenSplit(itemId: string) {
+    const { data: claimRows } = await supabase.from("claims").select("id").eq("item_id", itemId);
+    if (!claimRows || claimRows.length === 0) return;
+    await Promise.all(
+      claimRows.map((c) => supabase.from("claims").update({ locked: false }).eq("id", c.id)),
+    );
+    await redistributeClaims(itemId);
+    await fetchClaims();
   }
 
   async function toggleClaim(itemId: string) {
@@ -522,7 +547,7 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
       } else {
         const { error } = await supabase
           .from("claims")
-          .insert({ item_id: itemId, participant_id: participantId, amount: 0 });
+          .insert({ item_id: itemId, participant_id: participantId, amount: 0, locked: false });
         if (error) { toast.error("Couldn't add claim."); return; }
         await logActivity(
           sessionId,
@@ -1113,11 +1138,14 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
       {editingClaim && (() => {
         const item = items.find((i) => i.id === editingClaim.item_id);
         if (!item) return null;
-        const otherClaims = claims.filter(
-          (c) => c.item_id === editingClaim.item_id && c.id !== editingClaim.id,
+        const otherLockedClaims = claims.filter(
+          (c) => c.item_id === editingClaim.item_id && c.id !== editingClaim.id && c.locked,
         );
-        const usedByOthers = otherClaims.reduce((sum, c) => sum + (c.amount ?? 0), 0);
-        const maxAllowed = Math.max(0, (item.price ?? 0) - usedByOthers);
+        const lockedByOthers = otherLockedClaims.reduce((sum, c) => sum + (c.amount ?? 0), 0);
+        const myBudget = Math.max(0, roundMoney((item.price ?? 0) - lockedByOthers));
+        const otherClaimCount = claims.filter(
+          (c) => c.item_id === editingClaim.item_id && c.id !== editingClaim.id,
+        ).length;
         return (
           <div
             className="fixed inset-0 bg-black/40 flex items-end justify-center z-50"
@@ -1135,8 +1163,18 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
                 <p className="font-semibold text-slate-900">{item.name}</p>
                 <p className="text-sm text-[var(--text-muted)]">
                   Total ${(item.price ?? 0).toFixed(2)}
-                  {otherClaims.length > 0 && ` · $${maxAllowed.toFixed(2)} available`}
+                  {otherClaimCount > 0 && (
+                    <> · <span className="font-medium">${myBudget.toFixed(2)} available</span></>
+                  )}
                 </p>
+                {editingClaim.locked && (
+                  <p className="text-xs text-amber-600 flex items-center justify-center gap-1 mt-1">
+                    <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                    </svg>
+                    Your share is locked
+                  </p>
+                )}
               </div>
               <div className="flex items-center justify-center gap-2">
                 <span className="text-2xl font-medium text-slate-600">$</span>
@@ -1145,7 +1183,7 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
                   inputMode="decimal"
                   step="0.01"
                   min="0"
-                  max={maxAllowed}
+                  max={myBudget}
                   value={amountInput}
                   onChange={(e) => setAmountInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") commitAmount(); }}
@@ -1159,8 +1197,22 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
                 onClick={commitAmount}
                 className="w-full min-h-[52px] rounded-xl bg-[var(--accent)] text-white font-semibold text-base hover:bg-[var(--accent-dark)] active:scale-[0.98] transition-all"
               >
-                Save my share
+                Lock my share
               </button>
+              {otherClaimCount > 0 && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const id = editingClaim.item_id;
+                    setEditingClaim(null);
+                    setAmountInput("");
+                    await resetToEvenSplit(id);
+                  }}
+                  className="w-full min-h-[44px] rounded-xl border border-slate-200 text-slate-600 text-sm font-medium hover:bg-slate-50 transition-colors"
+                >
+                  Reset to equal split
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => { setEditingClaim(null); setAmountInput(""); }}

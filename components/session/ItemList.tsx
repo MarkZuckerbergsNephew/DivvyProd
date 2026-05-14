@@ -41,6 +41,7 @@ type Claim = {
   item_id: string;
   participant_id: string;
   amount?: number;
+  locked?: boolean;
 };
 
 type Participant = {
@@ -400,7 +401,12 @@ export default function ItemList({
                                   )}
                                 </span>
                               </div>
-                              <span className="flex-shrink-0 text-sm font-semibold text-slate-600 tabular-nums">
+                              <span className="flex-shrink-0 flex items-center gap-1 text-sm font-semibold text-slate-600 tabular-nums">
+                                {claim.locked && (
+                                  <svg className="w-3 h-3 text-amber-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                    <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd" />
+                                  </svg>
+                                )}
                                 ${(claim.amount ?? 0).toFixed(2)}
                               </span>
                             </div>
