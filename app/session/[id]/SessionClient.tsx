@@ -1241,6 +1241,9 @@ export default function SessionClient({
 
     if (error) {
       toast.error("Couldn't delete item. Please try again.");
+    } else {
+      setItems(prev => prev.filter(i => i.id !== itemId));
+      setClaims(prev => prev.filter(c => c.item_id !== itemId));
     }
   }
 
