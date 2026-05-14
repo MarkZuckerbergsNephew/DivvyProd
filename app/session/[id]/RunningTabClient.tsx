@@ -10,7 +10,8 @@ import { logActivity } from "@/lib/activityLog";
 import { getParticipantColor } from "@/lib/participantColor";
 import ParticipantAvatar from "@/components/ParticipantAvatar";
 import ShareSheet from "@/components/ShareSheet";
-import { SessionShell } from "@/components/session";
+import { SessionShell, ScanReceiptModal } from "@/components/session";
+import type { ScannedReceipt } from "@/components/session/ScanReceiptModal";
 import CategoryChips, { CategoryBadge } from "@/components/running-tab/CategoryChips";
 import ActivityFeed from "@/components/running-tab/ActivityFeed";
 import BalanceDashboard from "@/components/running-tab/BalanceDashboard";
@@ -194,8 +195,11 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
   const [activeTab, setActiveTab] = useState<Tab>("expenses");
   const [showSettleUp, setShowSettleUp] = useState(false);
   const [showShareSheet, setShowShareSheet] = useState(false);
+  const [showScanModal, setShowScanModal] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState("");
+  const [taxAmount, setTaxAmount] = useState(0);
+  const [tipAmount, setTipAmount] = useState(0);
 
   /* Add item form */
   const [addName, setAddName] = useState("");
@@ -243,13 +247,15 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
   const fetchSession = useCallback(async () => {
     const { data } = await supabase
       .from("sessions")
-      .select("title, host_participant_id, join_code")
+      .select("title, host_participant_id, join_code, tax_amount, tip_amount")
       .eq("id", sessionId)
       .single();
     if (!data) return;
     if (data.title) setSessionTitle(data.title);
     setHostParticipantId(data.host_participant_id ?? null);
     setJoinCode((data as { join_code?: string | null }).join_code ?? null);
+    setTaxAmount(Number((data as { tax_amount?: number | null }).tax_amount ?? 0));
+    setTipAmount(Number((data as { tip_amount?: number | null }).tip_amount ?? 0));
   }, [sessionId]);
 
   const fetchItems = useCallback(async () => {
@@ -447,6 +453,66 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
     setAddPrice("");
     setAddCategory(null);
     nameInputRef.current?.focus();
+  }
+
+  /* ── Receipt scanning ── */
+
+  async function extractItemsFromFile(
+    file: File,
+  ): Promise<ScannedReceipt> {
+    if (file.size > 4 * 1024 * 1024) {
+      throw new Error("Image too large. Please use a photo under 4 MB.");
+    }
+    const formData = new FormData();
+    formData.set("image", file);
+    const res = await fetch("/api/ocr", { method: "POST", body: formData });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error((data as { error?: string }).error ?? "Failed to read receipt");
+    }
+    const data = await res.json();
+    return {
+      items: Array.isArray(data.items) ? data.items : [],
+      tax: typeof data.tax === "number" ? data.tax : 0,
+      tip: typeof data.tip === "number" ? data.tip : 0,
+    };
+  }
+
+  async function addItemsFromScan({ items: scanned, tax, tip }: ScannedReceipt) {
+    if (!participantId) return;
+    const today = new Date().toISOString().split("T")[0];
+
+    const { error } = await supabase.from("items").insert(
+      scanned.map((it) => ({
+        session_id: sessionId,
+        name: it.name.trim(),
+        price: it.price,
+        added_by: participantId,
+        item_date: today,
+      })),
+    );
+    if (error) throw error;
+
+    await fetchItems();
+
+    if (tax > 0 && taxAmount === 0) {
+      setTaxAmount(tax);
+      await supabase.from("sessions").update({ tax_amount: tax }).eq("id", sessionId);
+    }
+
+    if (tip > 0 && tipAmount === 0) {
+      setTipAmount(tip);
+      await supabase.from("sessions").update({ tip_amount: tip }).eq("id", sessionId);
+    }
+
+    await logActivity(
+      sessionId,
+      participantId,
+      "item_added",
+      `${participantName ?? "Someone"} scanned a receipt and added ${scanned.length} item${scanned.length === 1 ? "" : "s"}`,
+    );
+
+    toast.success(`Added ${scanned.length} item${scanned.length === 1 ? "" : "s"} from receipt`);
   }
 
   /* ── Edit claim amount ── */
@@ -892,6 +958,17 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
                         "Add"
                       )}
                     </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowScanModal(true)}
+                      className="min-h-[48px] px-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 active:scale-[0.98] transition-all shrink-0"
+                      aria-label="Scan receipt"
+                    >
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </button>
                   </div>
                   {/* Category chips */}
                   <CategoryChips selected={addCategory} onChange={setAddCategory} />
@@ -1224,6 +1301,12 @@ export default function RunningTabClient({ sessionId }: { sessionId: string }) {
           </div>
         );
       })()}
+      <ScanReceiptModal
+        isOpen={showScanModal}
+        onClose={() => setShowScanModal(false)}
+        onExtractItems={extractItemsFromFile}
+        onAddItems={addItemsFromScan}
+      />
     </SessionShell>
   );
 }
